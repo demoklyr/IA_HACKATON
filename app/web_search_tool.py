@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import json
 import os
+import ssl
 from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
+import certifi
 from dotenv import load_dotenv
 from langchain.tools import tool
 
@@ -37,22 +38,31 @@ def _run_serper_search(query: str, limit: int = 10) -> dict[str, Any]:
             "SERPER_API_KEY is missing from the environment or project .env file"
         )
 
-    search_url = f"{SERPER_SEARCH_URL}?{urlencode({'q': normalized_query, 'apiKey': api_key, 'num': limit})}"
+    body = json.dumps({"q": normalized_query, "num": limit}).encode("utf-8")
     request = Request(
-        search_url,
-        method="GET",
-        headers={"Accept": "application/json"},
+        SERPER_SEARCH_URL,
+        data=body,
+        method="POST",
+        headers={
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "X-API-KEY": api_key,
+        },
     )
+    ssl_context = ssl.create_default_context(cafile=certifi.where())
 
     try:
-        with urlopen(request, timeout=30.0) as response:
+        with urlopen(request, timeout=30.0, context=ssl_context) as response:
             payload = response.read().decode("utf-8")
     except HTTPError as error:
         raise SerperSearchError(
             f"Serper search failed with HTTP status {error.code}"
         ) from error
     except (URLError, TimeoutError, OSError) as error:
-        raise SerperSearchError("Could not reach the Serper search API") from error
+        reason = getattr(error, "reason", error)
+        raise SerperSearchError(
+            f"Could not reach the Serper search API: {reason}"
+        ) from error
 
     try:
         result = json.loads(payload)

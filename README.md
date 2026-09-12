@@ -14,23 +14,48 @@ The discovery boundary returns ranked `CandidateVideo` objects. Search is isolat
 behind `SocialSearchProvider`, so a real SERP provider can be plugged in without
 changing the agent pipeline.
 
-For now, the only bundled provider is deterministic offline mock data:
+For offline development, use the deterministic mock provider:
 
 ```dotenv
 DISCOVERY_SEARCH_PROVIDER=mock
 ```
 
-### Intent agent
+### Minimal ReAct agent
 
-Without an API key, discovery uses the local rule-based parser. To enable the LangChain intent agent, copy `.env.example` to `.env` and set:
+To run the LangChain ReAct agent, copy `.env.example` to `.env` and set:
 
 ```dotenv
 OPENAI_API_KEY=your-key
 DISCOVERY_MODEL=openai:gpt-4.1-mini
-DISCOVERY_SEARCH_PROVIDER=mock
+DISCOVERY_SEARCH_PROVIDER=serper
+SERPER_API_KEY=your-key
 ```
 
-The agent instructions live in `app/discovery/skills/intent_parser.md`, so they can evolve without changing Python code. LangChain is intentionally limited to intent parsing; URL deduplication and ranking remain deterministic.
+Then run:
+
+```bash
+python main.py --langchain-react "I want an easy vegetarian Mexican recipe"
+```
+
+The agent has two tools: `search_videos`, which sends the model's query to the configured search provider, and `rank_candidates`, which ranks the returned URLs. There is no separate intent parser or query planner.
+
+To continue a conversation, reuse the same agent and conversation ID. Memory is
+kept in process and retains the six most recent turns by default:
+
+```python
+from app.discovery.agent import ConversationMemory, create_langchain_react_agent
+
+agent = create_langchain_react_agent(memory=ConversationMemory(max_turns=6))
+
+await agent.run("Find me spicy noodle recipes", conversation_id="user-123")
+await agent.run("Make them vegetarian", conversation_id="user-123")
+
+agent.clear_memory("user-123")
+```
+
+Use a different ID for each user or chat. Change `max_turns` to adjust the
+history limit. The one-shot
+`find_recipe_videos(...)` API intentionally creates a fresh agent for every call.
 
 ## Serper web-search tool
 
@@ -43,3 +68,14 @@ SERPER_API_KEY=your-key
 
 The tool accepts a `query` and an optional `limit` (1–100), and returns the
 JSON response from Serper without scraping result pages.
+
+The discovery agents use this tool automatically when `SERPER_API_KEY` is set.
+You can also select it explicitly:
+
+```dotenv
+DISCOVERY_SEARCH_PROVIDER=serper
+SERPER_API_KEY=your-key
+```
+
+The agent's query is sent directly to Serper with an Instagram site filter.
+Only direct Instagram Reel URLs continue into ranking.

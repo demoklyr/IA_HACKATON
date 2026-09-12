@@ -13,9 +13,8 @@ def _key_state(name: str) -> str:
 
 def _print_discovery(user_query: str, discovery) -> None:
     print("USER REQUEST\n" + user_query)
-    print("\nPARSED INTENT\n" + discovery.intent.model_dump_json(indent=2))
 
-    print("\nGENERATED QUERIES")
+    print("\nSEARCH QUERIES")
     for index, query in enumerate(discovery.queries, 1):
         print(f"{index}. {query}")
 
@@ -48,13 +47,8 @@ async def run() -> None:
     parser.add_argument("--limit", type=int, default=3, help="Number of ranked results to show")
     parser.add_argument(
         "--provider",
-        choices=["mock", "google", "instagram", "web"],
+        choices=["auto", "mock", "serper"],
         help="Search provider override. Defaults to DISCOVERY_SEARCH_PROVIDER or app defaults.",
-    )
-    parser.add_argument(
-        "--no-openai",
-        action="store_true",
-        help="Disable OpenAI for this run, forcing the local rule-based intent parser.",
     )
     parser.add_argument(
         "--langchain-react",
@@ -64,8 +58,6 @@ async def run() -> None:
     args = parser.parse_args()
 
     load_dotenv()
-    if args.no_openai:
-        os.environ["OPENAI_API_KEY"] = ""
     if args.provider:
         os.environ["DISCOVERY_SEARCH_PROVIDER"] = args.provider
 
@@ -75,10 +67,10 @@ async def run() -> None:
 
     print("RUNTIME")
     print(f"agent={type(agent).__name__}")
-    print(f"intent_parser={runtime.intent_parser}")
     print(f"search_provider={runtime.search_provider}")
     print(f"discovery_search_provider={os.getenv('DISCOVERY_SEARCH_PROVIDER') or 'auto'}")
     print(f"openai_api_key={_key_state('OPENAI_API_KEY')}")
+    print(f"serper_api_key={_key_state('SERPER_API_KEY')}")
     print()
 
     discovery = await agent.run(user_query, limit=args.limit)

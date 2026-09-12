@@ -1,5 +1,4 @@
 import json
-from urllib.parse import parse_qs, urlsplit
 
 import pytest
 
@@ -20,13 +19,14 @@ class FakeResponse:
         return self._payload
 
 
-def test_serper_search_builds_get_request(monkeypatch):
+def test_serper_search_builds_post_request(monkeypatch):
     captured = {}
     expected = {"organic": [{"title": "Pasta", "link": "https://example.com"}]}
 
-    def fake_urlopen(request, timeout):
+    def fake_urlopen(request, timeout, context):
         captured["request"] = request
         captured["timeout"] = timeout
+        captured["context"] = context
         return FakeResponse(expected)
 
     monkeypatch.setenv("SERPER_API_KEY", "test-key")
@@ -35,15 +35,13 @@ def test_serper_search_builds_get_request(monkeypatch):
     result = _run_serper_search("easy pasta & tomatoes", limit=5)
 
     request = captured["request"]
-    query = parse_qs(urlsplit(request.full_url).query)
     assert result == expected
-    assert request.get_method() == "GET"
-    assert query == {
-        "q": ["easy pasta & tomatoes"],
-        "apiKey": ["test-key"],
-        "num": ["5"],
-    }
+    assert request.get_method() == "POST"
+    assert json.loads(request.data) == {"q": "easy pasta & tomatoes", "num": 5}
+    assert request.get_header("X-api-key") == "test-key"
+    assert request.get_header("Content-type") == "application/json"
     assert captured["timeout"] == 30.0
+    assert captured["context"] is not None
 
 
 def test_serper_search_requires_api_key(monkeypatch):

@@ -3,7 +3,7 @@
 This module has two stages:
 
 1. `framer.py` uses FFmpeg to sample the video, detect scene changes, remove near-duplicate images, and create `frames.json`.
-2. `analyze_frames.py` sends each current frame plus the previous frame to GPT-5 nano and writes structured visual descriptions.
+2. `analyze_frames.py` sends batches of four frames to GPT-5 nano, with up to five API calls in flight, and writes structured visual descriptions.
 
 ## Install
 
@@ -63,7 +63,7 @@ python framer/analyze_frames.py \
   -o insta_scraper/downloads/DU3Rmy5Dvqf/frames/full_frame_analysis.json
 ```
 
-The analysis is saved after every successful API call. If a run is interrupted, continue it with:
+The analysis is saved after every successful four-frame batch. If a run is interrupted, continue it with:
 
 ```bash
 python framer/analyze_frames.py \
