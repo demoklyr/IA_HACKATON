@@ -85,7 +85,7 @@ class MockSearchProvider:
 
 
 class SerperSearchProvider:
-    """Find indexed Instagram and TikTok videos with the Serper search tool."""
+    """Find indexed Instagram Reels with the Serper search tool."""
 
     def __init__(self, search_tool: Any | None = None) -> None:
         self._search_tool = search_tool or web_search
@@ -159,17 +159,15 @@ def _social_video_platform(url: str) -> str | None:
         "/reel/" in path or "/reels/" in path
     ):
         return "instagram"
-    if (host == "tiktok.com" or host.endswith(".tiktok.com")) and "/video/" in path:
-        return "tiktok"
     return None
 
 
 def _social_search_query(query: str) -> str:
     normalized_query = query.strip()
     lowered = normalized_query.lower()
-    if "site:instagram.com" in lowered or "site:tiktok.com" in lowered:
+    if "site:instagram.com" in lowered:
         return normalized_query
     return (
         f"{normalized_query} recipe video "
-        "(site:instagram.com/reel OR site:instagram.com/reels OR site:tiktok.com/@)"
+        "(site:instagram.com/reel OR site:instagram.com/reels)"
     )
