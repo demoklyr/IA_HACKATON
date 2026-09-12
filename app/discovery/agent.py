@@ -179,6 +179,7 @@ class LangChainReActDiscoveryAgent(RecipeDiscoveryAgent):
         from langchain.agents import create_agent
         from langchain.tools import tool
 
+        from app.instagram_post_tool import get_instagram_post_details
         from app.instagram_recipe_tool import create_recipe_from_instagram
 
         self._state: dict[str, object] = {}
@@ -230,7 +231,12 @@ class LangChainReActDiscoveryAgent(RecipeDiscoveryAgent):
 
         self._agent = create_agent(
             model=model,
-            tools=[search_videos, rank_candidates, create_recipe_from_instagram],
+            tools=[
+                search_videos,
+                rank_candidates,
+                get_instagram_post_details,
+                create_recipe_from_instagram,
+            ],
             system_prompt=system_prompt or load_system_prompt(),
         )
 
@@ -257,6 +263,23 @@ class LangChainReActDiscoveryAgent(RecipeDiscoveryAgent):
         )
         agent_result = await self._agent.ainvoke({"messages": messages})
         assistant_message = _last_assistant_message(agent_result)
+
+        instagram_post = _extract_instagram_post(agent_result)
+        if instagram_post is not None:
+            self._record(
+                "The user asked for lightweight Instagram post metadata.",
+                "get_instagram_post_details",
+                "found the post description and thumbnail",
+            )
+            discovery = _direct_tool_discovery(self._state)
+            discovery.instagram_post = instagram_post
+            discovery.assistant_message = assistant_message
+            self.memory.remember(
+                query,
+                _summarize_discovery(discovery),
+                normalized_conversation_id,
+            )
+            return discovery
 
         recipe = _extract_instagram_recipe(agent_result)
         if recipe is not None:
@@ -377,6 +400,15 @@ def _normalize_conversation_id(conversation_id: str) -> str:
 
 def _summarize_discovery(discovery: DiscoveryRun) -> str:
     """Keep useful context without retaining bulky tool-call transcripts."""
+    if discovery.instagram_post is not None:
+        source_url = discovery.instagram_post.get("source_url", "unknown URL")
+        description = discovery.instagram_post.get("description") or "No description"
+        thumbnail_url = discovery.instagram_post.get("thumbnail_url") or "No thumbnail"
+        return (
+            f"I inspected {source_url}. Description: {str(description)[:500]}. "
+            f"Thumbnail: {thumbnail_url}"
+        )
+
     if discovery.recipe is not None:
         ingredient_count = len(discovery.recipe.get("ingredients", []))
         step_count = len(discovery.recipe.get("steps", []))
@@ -474,3 +506,43 @@ def _last_assistant_message(agent_result: Any) -> str:
             ]
             return "\n".join(part for part in parts if part).strip()
     return ""
+
+
+def _extract_instagram_post(agent_result: Any) -> dict[str, Any] | None:
+    """Read the direct metadata-tool result from a LangChain agent response."""
+    if not isinstance(agent_result, dict):
+        return None
+    messages = agent_result.get("messages")
+    if not isinstance(messages, list):
+        return None
+
+    for message in reversed(messages):
+        if isinstance(message, dict):
+            name = message.get("name")
+            content = message.get("content")
+        else:
+            name = getattr(message, "name", None)
+            content = getattr(message, "content", None)
+
+        if name != "get_instagram_post_details":
+            continue
+        post = _loads_loose(content)
+        if isinstance(post, dict) and {
+            "source_url",
+            "description",
+            "thumbnail_url",
+        } <= post.keys():
+            return post
+    return None
+
+
+def _direct_tool_discovery(state: dict[str, object]) -> DiscoveryRun:
+    """Preserve any search state completed before a direct-return tool call."""
+    queries = state.get("queries", [])
+    raw_candidates = state.get("candidates", [])
+    results = state.get("results", [])
+    return DiscoveryRun(
+        queries=queries if isinstance(queries, list) else [],
+        raw_candidates=raw_candidates if isinstance(raw_candidates, list) else [],
+        results=results if isinstance(results, list) else [],
+    )

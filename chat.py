@@ -7,8 +7,18 @@ from app.discovery.agent import ConversationMemory, create_langchain_react_agent
 def _print_discovery(discovery) -> None:
     if discovery.assistant_message:
         print(f"\nAgent: {discovery.assistant_message}")
-        if not discovery.queries and not discovery.results and discovery.recipe is None:
+        if (
+            not discovery.queries
+            and not discovery.results
+            and discovery.recipe is None
+            and discovery.instagram_post is None
+        ):
             return
+
+    if discovery.instagram_post is not None:
+        print("\nINSTAGRAM POST")
+        print(json.dumps(discovery.instagram_post, indent=2, ensure_ascii=False))
+        return
 
     if discovery.recipe is not None:
         print("\nRECIPE")

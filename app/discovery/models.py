@@ -21,3 +21,4 @@ class DiscoveryRun(BaseModel):
     results: list[CandidateVideo]
     recipe: dict[str, Any] | None = None
     assistant_message: str = ""
+    instagram_post: dict[str, Any] | None = None
