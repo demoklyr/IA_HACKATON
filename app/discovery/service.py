@@ -1,12 +1,10 @@
-import asyncio
 import os
 
 from dotenv import load_dotenv
 
+from .agent import create_discovery_agent
 from .intent_agent import IntentParser, default_intent_parser
 from .models import CandidateVideo, DiscoveryRun
-from .query_planner import generate_queries
-from .ranker import deduplicate_candidates, rank_candidates
 from .social_search import GoogleInstagramSearchProvider, InstagramUrlScrapeProvider, MockSearchProvider, SocialSearchProvider, WebSearchProvider
 
 
@@ -33,20 +31,11 @@ async def run_discovery(
     provider: SocialSearchProvider | None = None,
     intent_parser: IntentParser | None = None,
 ) -> DiscoveryRun:
-    if not user_query.strip():
-        raise ValueError("user_query must not be empty")
-    intent = await (intent_parser or default_intent_parser()).parse(user_query)
-    queries = generate_queries(user_query, intent)
-    provider = provider or default_search_provider()
-    search_many = getattr(provider, "search_many", None)
-    if callable(search_many):
-        candidates = await search_many(queries, limit=10)
-    else:
-        batches = await asyncio.gather(*(provider.search(query, limit=10) for query in queries))
-        candidates = [candidate for batch in batches for candidate in batch]
-    raw_candidates = deduplicate_candidates(candidates)
-    results = rank_candidates(raw_candidates, user_query, intent)[:max(limit, 0)]
-    return DiscoveryRun(intent=intent, queries=queries, raw_candidates=raw_candidates, results=results)
+    agent = create_discovery_agent(
+        intent_parser=intent_parser or default_intent_parser(),
+        search_provider=provider or default_search_provider(),
+    )
+    return await agent.run(user_query, limit)
 
 
 async def find_recipe_videos(user_query: str, limit: int = 3) -> list[CandidateVideo]:

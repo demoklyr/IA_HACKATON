@@ -5,9 +5,10 @@ from app.discovery.ranker import deduplicate_candidates, normalize_url, rank_can
 from types import SimpleNamespace
 
 from app.discovery.intent_agent import RuleBasedIntentParser
+from app.discovery.agent import create_discovery_agent
 from app.discovery.service import run_discovery
 from app.discovery.models import CandidateVideo
-from app.discovery.social_search import MockSearchProvider, WebSearchProvider, _google_instagram_candidates_from_html, _instagram_reel_candidates_from_html
+from app.discovery.social_search import MockSearchProvider, WebSearchProvider, _instagram_reel_candidates_from_html, _search_engine_instagram_candidates_from_html
 
 
 def test_query_generation():
@@ -57,6 +58,21 @@ async def test_end_to_end_mocked_discovery():
     assert len(results) == 3
     assert results[0].platform in {"instagram", "tiktok"}
     assert results[0].score_explanation
+
+
+@pytest.mark.asyncio
+async def test_agent_runs_with_injected_tools():
+    agent = create_discovery_agent(
+        intent_parser=RuleBasedIntentParser(),
+        search_provider=MockSearchProvider(),
+    )
+
+    discovery = await agent.run("easy vegetarian recipe", limit=2)
+
+    assert agent.runtime.intent_parser == "RuleBasedIntentParser"
+    assert agent.runtime.search_provider == "MockSearchProvider"
+    assert len(discovery.queries) >= 3
+    assert len(discovery.results) == 2
 
 
 @pytest.mark.asyncio
@@ -134,17 +150,19 @@ def test_instagram_html_extraction_returns_only_reels():
     ]
 
 
-def test_google_html_extraction_returns_only_instagram_reels():
+def test_search_engine_html_extraction_returns_only_instagram_reels():
     html = """
     <a href="/url?q=https://www.instagram.com/reels/ABC123/?igsh=demo&sa=U">Reel</a>
+    <a href="/l/?kh=-1&uddg=https%3A%2F%2Fwww.instagram.com%2Freel%2FDUCK123%2F">Duck</a>
     <a href="/url?q=https://www.tiktok.com/@chef/video/123&sa=U">TikTok</a>
     <a href="https://www.instagram.com/p/NOTAREEL/">Post</a>
     <a href="https://www.instagram.com/reel/DEF456/">Another Reel</a>
     """
 
-    candidates = _google_instagram_candidates_from_html(html, limit=10)
+    candidates = _search_engine_instagram_candidates_from_html(html, limit=10)
 
     assert [candidate.url for candidate in candidates] == [
         "https://www.instagram.com/reel/ABC123/",
+        "https://www.instagram.com/reel/DUCK123/",
         "https://www.instagram.com/reel/DEF456/",
     ]
