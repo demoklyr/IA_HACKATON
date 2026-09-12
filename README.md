@@ -57,6 +57,10 @@ Use a different ID for each user or chat. Change `max_turns` to adjust the
 history limit. The one-shot
 `find_recipe_videos(...)` API intentionally creates a fresh agent for every call.
 
+The editable system prompt lives in
+`app/discovery/prompts/system_prompt.md`. Restart the Python process after
+changing it so the next agent instance reloads the instructions.
+
 ## Serper web-search tool
 
 `app.web_search_tool.web_search` is a LangChain tool for general Google web
