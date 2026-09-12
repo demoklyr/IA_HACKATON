@@ -26,3 +26,10 @@ class SearchIntent(BaseModel):
     difficulty: str | None = None
     free_form_constraints: list[str] = Field(default_factory=list)
     raw_query: str = ""
+
+
+class DiscoveryRun(BaseModel):
+    intent: SearchIntent
+    queries: list[str]
+    raw_candidates: list[CandidateVideo]
+    results: list[CandidateVideo]

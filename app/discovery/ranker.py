@@ -9,6 +9,13 @@ def normalize_url(url: str) -> str:
     return urlunsplit((parts.scheme.lower(), parts.netloc.lower().removeprefix("www."), parts.path.rstrip("/"), "", ""))
 
 
+def deduplicate_candidates(candidates: list[CandidateVideo]) -> list[CandidateVideo]:
+    unique: dict[str, CandidateVideo] = {}
+    for candidate in candidates:
+        unique.setdefault(normalize_url(candidate.url), candidate)
+    return list(unique.values())
+
+
 def rank_candidates(candidates: list[CandidateVideo], user_query: str, intent: SearchIntent) -> list[CandidateVideo]:
     requested = set(re.findall(r"[a-z0-9]+", user_query.lower()))
     for candidate in candidates:

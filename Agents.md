@@ -12,8 +12,10 @@ async def find_recipe_videos(user_query: str, limit: int = 3) -> list[CandidateV
 
 ## Acceptance criteria
 
-- Python 3.11+, Pydantic models, no LangChain/LangGraph.
-- Query parsing and 3–5 query variants are deterministic.
+- Python 3.11+ and Pydantic models.
+- LangChain is allowed only for intent understanding and structured output. Do not add LangGraph yet.
+- The intent agent reads an editable Markdown skill and has a deterministic fallback when no API key is configured.
+- Query generation produces 3–5 deterministic variants from the parsed intent.
 - Search providers do not scrape Instagram or TikTok directly.
 - The CLI prints intent, generated queries, raw candidates, and top results.
 - Tests cover query generation, URL deduplication, ranking, and end-to-end mocked discovery.

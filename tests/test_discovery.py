@@ -1,7 +1,7 @@
 import pytest
 
 from app.discovery.query_planner import generate_queries, parse_intent
-from app.discovery.ranker import normalize_url, rank_candidates
+from app.discovery.ranker import deduplicate_candidates, normalize_url, rank_candidates
 from app.discovery.service import find_recipe_videos
 from app.discovery.models import CandidateVideo
 
@@ -16,6 +16,14 @@ def test_query_generation():
 
 def test_url_normalization():
     assert normalize_url("HTTPS://WWW.Instagram.com/reel/demo/?utm_source=x") == "https://instagram.com/reel/demo"
+
+
+def test_deduplication_ignores_query_parameters():
+    candidates = [
+        CandidateVideo(platform="instagram", url="https://instagram.com/reel/demo"),
+        CandidateVideo(platform="instagram", url="https://www.instagram.com/reel/demo/?utm_source=x"),
+    ]
+    assert len(deduplicate_candidates(candidates)) == 1
 
 
 def test_ranking_prefers_relevant_candidate():

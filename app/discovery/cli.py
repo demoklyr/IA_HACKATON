@@ -1,20 +1,21 @@
 import argparse
 import asyncio
 
-from .query_planner import generate_queries, parse_intent
-from .service import find_recipe_videos
+from .service import run_discovery
 
 
 async def run(user_query: str, limit: int = 3) -> None:
-    intent = parse_intent(user_query)
+    discovery = await run_discovery(user_query, limit)
     print("USER REQUEST\n" + user_query)
-    print("\nPARSED INTENT\n" + intent.model_dump_json(indent=2))
+    print("\nPARSED INTENT\n" + discovery.intent.model_dump_json(indent=2))
     print("\nGENERATED QUERIES")
-    for index, query in enumerate(generate_queries(user_query, intent), 1):
+    for index, query in enumerate(discovery.queries, 1):
         print(f"{index}. {query}")
-    results = await find_recipe_videos(user_query, limit)
+    print("\nRAW CANDIDATES")
+    for candidate in discovery.raw_candidates:
+        print(f"- [{candidate.platform}] {candidate.caption} — {candidate.url}")
     print("\nTOP RESULTS")
-    for index, video in enumerate(results, 1):
+    for index, video in enumerate(discovery.results, 1):
         print(f"{index}. score={video.score}\n   platform={video.platform}\n   caption={video.caption}\n   url={video.url}\n   reason={video.score_explanation}")
 
 
