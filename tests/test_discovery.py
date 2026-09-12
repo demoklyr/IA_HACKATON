@@ -5,10 +5,11 @@ from app.discovery.ranker import deduplicate_candidates, normalize_url, rank_can
 from types import SimpleNamespace
 
 from app.discovery.intent_agent import RuleBasedIntentParser
-from app.discovery.agent import create_discovery_agent
+from app.discovery.agent import LangChainReActDiscoveryAgent, _coerce_queries, create_discovery_agent
 from app.discovery.service import run_discovery
 from app.discovery.models import CandidateVideo
 from app.discovery.social_search import MockSearchProvider, WebSearchProvider, _instagram_reel_candidates_from_html, _search_engine_instagram_candidates_from_html
+from app.discovery.tools import DiscoveryTools
 
 
 def test_query_generation():
@@ -71,8 +72,31 @@ async def test_agent_runs_with_injected_tools():
 
     assert agent.runtime.intent_parser == "RuleBasedIntentParser"
     assert agent.runtime.search_provider == "MockSearchProvider"
+    assert [step.action for step in agent.trace] == [
+        "parse_intent",
+        "plan_queries",
+        "search_videos",
+        "deduplicate",
+        "rank",
+    ]
     assert len(discovery.queries) >= 3
     assert len(discovery.results) == 2
+
+
+def test_langchain_react_agent_requires_openai_key(monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    tools = DiscoveryTools(
+        intent_parser=RuleBasedIntentParser(),
+        search_provider=MockSearchProvider(),
+    )
+
+    with pytest.raises(RuntimeError, match="OPENAI_API_KEY"):
+        LangChainReActDiscoveryAgent(tools, model="openai:gpt-4.1-mini")
+
+
+def test_langchain_react_query_coercion_handles_bad_json():
+    assert _coerce_queries('["query one", "query two"]') == ["query one", "query two"]
+    assert _coerce_queries('["query one\nquery two"]') == []
 
 
 @pytest.mark.asyncio
