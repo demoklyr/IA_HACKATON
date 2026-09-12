@@ -15,6 +15,11 @@ def _key_state(name: str) -> str:
 def _print_discovery(user_query: str, discovery) -> None:
     print("USER REQUEST\n" + user_query)
 
+    if discovery.instagram_post is not None:
+        print("\nINSTAGRAM POST")
+        print(json.dumps(discovery.instagram_post, indent=2, ensure_ascii=False))
+        return
+
     if discovery.recipe is not None:
         print("\nRECIPE")
         print(json.dumps(discovery.recipe, indent=2, ensure_ascii=False))
