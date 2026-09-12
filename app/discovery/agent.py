@@ -1,6 +1,7 @@
 import ast
 import json
 import os
+from collections import deque
 from dataclasses import dataclass
 from typing import Any
 
@@ -21,21 +22,89 @@ class ReActStep:
     observation: str
 
 
+@dataclass(frozen=True)
+class ConversationTurn:
+    """A compact turn kept as context for a later discovery request."""
+
+    user_query: str
+    assistant_summary: str
+
+
+class ConversationMemory:
+    """Bounded, in-process conversation history, isolated by conversation id."""
+
+    def __init__(self, max_turns: int = 6) -> None:
+        if max_turns < 1:
+            raise ValueError("max_turns must be at least 1")
+        self.max_turns = max_turns
+        self._turns: dict[str, deque[ConversationTurn]] = {}
+
+    def history(self, conversation_id: str = "default") -> list[ConversationTurn]:
+        return list(self._turns.get(_normalize_conversation_id(conversation_id), ()))
+
+    def messages(self, conversation_id: str = "default") -> list[dict[str, str]]:
+        messages: list[dict[str, str]] = []
+        for turn in self.history(conversation_id):
+            messages.extend(
+                (
+                    {"role": "user", "content": turn.user_query},
+                    {"role": "assistant", "content": turn.assistant_summary},
+                )
+            )
+        return messages
+
+    def remember(
+        self,
+        user_query: str,
+        assistant_summary: str,
+        conversation_id: str = "default",
+    ) -> None:
+        normalized_id = _normalize_conversation_id(conversation_id)
+        turns = self._turns.setdefault(
+            normalized_id,
+            deque(maxlen=self.max_turns),
+        )
+        turns.append(
+            ConversationTurn(
+                user_query=user_query,
+                assistant_summary=assistant_summary,
+            )
+        )
+
+    def clear(self, conversation_id: str | None = None) -> None:
+        if conversation_id is None:
+            self._turns.clear()
+        else:
+            self._turns.pop(_normalize_conversation_id(conversation_id), None)
+
+
 class RecipeDiscoveryAgent:
     """Small deterministic fallback using the same tools as the ReAct agent."""
 
-    def __init__(self, tools: DiscoveryTools) -> None:
+    def __init__(
+        self,
+        tools: DiscoveryTools,
+        memory: ConversationMemory | None = None,
+    ) -> None:
         self.tools = tools
+        self.memory = memory or ConversationMemory()
         self.trace: list[ReActStep] = []
 
     @property
     def runtime(self) -> AgentRuntime:
         return AgentRuntime(search_provider=type(self.tools.search_provider).__name__)
 
-    async def run(self, user_query: str, limit: int = 3) -> DiscoveryRun:
+    async def run(
+        self,
+        user_query: str,
+        limit: int = 3,
+        *,
+        conversation_id: str = "default",
+    ) -> DiscoveryRun:
         query = user_query.strip()
         if not query:
             raise ValueError("user_query must not be empty")
+        _normalize_conversation_id(conversation_id)
 
         self.trace = []
         self._record(
@@ -54,11 +123,27 @@ class RecipeDiscoveryAgent:
         results = self.tools.rank(candidates, query)[:max(limit, 0)]
         self.trace[-1].observation = f"selected {len(results)} top results"
 
-        return DiscoveryRun(
+        discovery = DiscoveryRun(
             queries=[query],
             raw_candidates=candidates,
             results=results,
         )
+        self.memory.remember(
+            query,
+            _summarize_discovery(discovery),
+            conversation_id,
+        )
+        return discovery
+
+    def conversation_history(
+        self,
+        conversation_id: str = "default",
+    ) -> list[ConversationTurn]:
+        return self.memory.history(conversation_id)
+
+    def clear_memory(self, conversation_id: str | None = None) -> None:
+        """Forget one conversation, or every conversation when no id is given."""
+        self.memory.clear(conversation_id)
 
     def _record(self, thought: str, action: str, observation: str) -> None:
         self.trace.append(ReActStep(thought=thought, action=action, observation=observation))
@@ -66,18 +151,25 @@ class RecipeDiscoveryAgent:
 
 def create_discovery_agent(
     search_provider: SocialSearchProvider | None = None,
+    *,
+    memory: ConversationMemory | None = None,
 ) -> RecipeDiscoveryAgent:
     from .service import default_search_provider
 
     tools = DiscoveryTools(search_provider=search_provider or default_search_provider())
-    return RecipeDiscoveryAgent(tools)
+    return RecipeDiscoveryAgent(tools, memory=memory)
 
 
 class LangChainReActDiscoveryAgent(RecipeDiscoveryAgent):
-    def __init__(self, tools: DiscoveryTools, model: str) -> None:
+    def __init__(
+        self,
+        tools: DiscoveryTools,
+        model: str,
+        memory: ConversationMemory | None = None,
+    ) -> None:
         if not os.getenv("OPENAI_API_KEY"):
             raise RuntimeError("OPENAI_API_KEY is required for --langchain-react")
-        super().__init__(tools)
+        super().__init__(tools, memory=memory)
 
         from langchain.agents import create_agent
         from langchain.tools import tool
@@ -134,32 +226,38 @@ class LangChainReActDiscoveryAgent(RecipeDiscoveryAgent):
             tools=[search_videos, rank_candidates],
             system_prompt=(
                 "You are a minimal ReAct recipe-video discovery agent. "
+                "Use the conversation history to resolve follow-up requests and refinements. "
                 "Turn the user's request into a precise search query, call search_videos, "
                 "then call rank_candidates. You may search again with a better query when useful. "
                 "Never invent URLs. After ranking, give a concise final answer."
             ),
         )
 
-    async def run(self, user_query: str, limit: int = 3) -> DiscoveryRun:
+    async def run(
+        self,
+        user_query: str,
+        limit: int = 3,
+        *,
+        conversation_id: str = "default",
+    ) -> DiscoveryRun:
         query = user_query.strip()
         if not query:
             raise ValueError("user_query must not be empty")
+        normalized_conversation_id = _normalize_conversation_id(conversation_id)
 
         self.trace = []
         self._state = {}
-        await self._agent.ainvoke(
+        messages = self.memory.messages(normalized_conversation_id)
+        messages.append(
             {
-                "messages": [
-                    {
-                        "role": "user",
-                        "content": (
-                            f"Find recipe videos for: {query}\n"
-                            f"Return at most {limit} ranked results."
-                        ),
-                    }
-                ]
+                "role": "user",
+                "content": (
+                    f"Find recipe videos for: {query}\n"
+                    f"Return at most {limit} ranked results."
+                ),
             }
         )
+        await self._agent.ainvoke({"messages": messages})
 
         queries = self._state.get("queries", [])
         raw_candidates = self._state.get("candidates", [])
@@ -190,16 +288,24 @@ class LangChainReActDiscoveryAgent(RecipeDiscoveryAgent):
         else:
             results = self._state.get("results", [])
 
-        return DiscoveryRun(
+        discovery = DiscoveryRun(
             queries=queries if isinstance(queries, list) else [],
             raw_candidates=raw_candidates,
             results=results if isinstance(results, list) else [],
         )
+        self.memory.remember(
+            query,
+            _summarize_discovery(discovery),
+            normalized_conversation_id,
+        )
+        return discovery
 
 
 def create_langchain_react_agent(
     search_provider: SocialSearchProvider | None = None,
     model: str | None = None,
+    *,
+    memory: ConversationMemory | None = None,
 ) -> LangChainReActDiscoveryAgent:
     from .service import default_search_provider
 
@@ -211,7 +317,28 @@ def create_langchain_react_agent(
             "DISCOVERY_REACT_MODEL",
             os.getenv("DISCOVERY_MODEL", "openai:gpt-4.1-mini"),
         ),
+        memory=memory,
     )
+
+
+def _normalize_conversation_id(conversation_id: str) -> str:
+    normalized = conversation_id.strip()
+    if not normalized:
+        raise ValueError("conversation_id must not be empty")
+    return normalized
+
+
+def _summarize_discovery(discovery: DiscoveryRun) -> str:
+    """Keep useful context without retaining bulky tool-call transcripts."""
+    queries = ", ".join(discovery.queries) or "none"
+    if not discovery.results:
+        return f"I searched with: {queries}. No recipe videos were selected."
+
+    selected = "; ".join(
+        f"{candidate.caption or 'Untitled video'} ({candidate.url})"
+        for candidate in discovery.results
+    )
+    return f"I searched with: {queries}. Selected recipe videos: {selected}"
 
 
 def _loads_loose(value: Any) -> Any:

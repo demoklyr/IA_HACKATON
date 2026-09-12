@@ -38,6 +38,24 @@ python main.py --langchain-react "I want an easy vegetarian Mexican recipe"
 
 The agent has two tools: `search_videos`, which sends the model's query to the configured search provider, and `rank_candidates`, which ranks the returned URLs. There is no separate intent parser or query planner.
 
+To continue a conversation, reuse the same agent and conversation ID. Memory is
+kept in process and retains the six most recent turns by default:
+
+```python
+from app.discovery.agent import ConversationMemory, create_langchain_react_agent
+
+agent = create_langchain_react_agent(memory=ConversationMemory(max_turns=6))
+
+await agent.run("Find me spicy noodle recipes", conversation_id="user-123")
+await agent.run("Make them vegetarian", conversation_id="user-123")
+
+agent.clear_memory("user-123")
+```
+
+Use a different ID for each user or chat. Change `max_turns` to adjust the
+history limit. The one-shot
+`find_recipe_videos(...)` API intentionally creates a fresh agent for every call.
+
 ## Serper web-search tool
 
 `app.web_search_tool.web_search` is a LangChain tool for general Google web
