@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import base64
 import json
 import mimetypes
@@ -11,15 +12,19 @@ from pathlib import Path
 from typing import Optional
 
 from dotenv import load_dotenv
-from openai import OpenAI
+from openai import AsyncOpenAI
 from pydantic import BaseModel, Field
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 load_dotenv(PROJECT_ROOT / ".env")
 
+BATCH_SIZE = 4
+MAX_CONCURRENT_CALLS = 5
+
 
 class VisibleFrameAnalysis(BaseModel):
+    frame_id: int = Field(description="The frame_id supplied with the frame")
     on_screen_text: Optional[str] = Field(
         description="Exact text visibly readable in the current frame, or null"
     )
@@ -29,6 +34,12 @@ class VisibleFrameAnalysis(BaseModel):
     ingredients_or_tools_visible: list[str]
     is_new_step: bool = Field(
         description="Whether the current frame starts a distinct step versus the prior frame"
+    )
+
+
+class VisibleFrameAnalysisBatch(BaseModel):
+    frames: list[VisibleFrameAnalysis] = Field(
+        description="One analysis for each CURRENT frame, in the supplied order"
     )
 
 
@@ -73,19 +84,15 @@ def load_manifest(path: Path) -> tuple[Path, list[dict]]:
     return manifest_path, frames
 
 
-def analyze_frame(
-    client: OpenAI,
+async def analyze_frame_batch(
+    client: AsyncOpenAI,
     model: str,
     detail: str,
-    current: dict,
-    current_path: Path,
+    current_frames: list[tuple[dict, Path]],
     previous: dict | None,
     previous_path: Path | None,
-) -> VisibleFrameAnalysis:
-    content: list[dict] = [{
-        "type": "input_text",
-        "text": f"Analyze CURRENT frame {current['frame_id']} at {current['timestamp_s']} seconds.",
-    }]
+) -> list[VisibleFrameAnalysis]:
+    content: list[dict] = []
     if previous is not None and previous_path is not None:
         content.extend([
             {
@@ -101,32 +108,52 @@ def analyze_frame(
                 "detail": detail,
             },
         ])
-    content.extend([
-        {"type": "input_text", "text": "CURRENT frame (analyze this one):"},
-        {
-            "type": "input_image",
-            "image_url": image_data_url(current_path),
-            "detail": detail,
-        },
-    ])
+    for current, current_path in current_frames:
+        content.extend([
+            {
+                "type": "input_text",
+                "text": (
+                    f"CURRENT frame {current['frame_id']} at "
+                    f"{current['timestamp_s']} seconds (analyze this one):"
+                ),
+            },
+            {
+                "type": "input_image",
+                "image_url": image_data_url(current_path),
+                "detail": detail,
+            },
+        ])
 
-    response = client.responses.parse(
+    response = await client.responses.parse(
         model=model,
         instructions=(
             "You analyze sequential frames from a short-form cooking video in timestamp "
-            "order. Describe only what is visibly shown. Do not infer hidden ingredients, "
+            "order. Return exactly one analysis for every CURRENT frame, in the same order, "
+            "and copy each supplied frame_id exactly. The PREVIOUS frame, when present, is "
+            "context for the first CURRENT frame only and must not be returned. Describe only "
+            "what is visibly shown. Do not infer hidden ingredients, "
             "intent, recipe quantities, or actions that are not visible. Transcribe visible "
             "caption text exactly; return null when none is readable. Keep visible_action to "
-            "one concise phrase. Set is_new_step true only when the CURRENT frame begins a "
-            "distinct cooking step compared with the PREVIOUS frame. If there is no previous "
-            "frame, set is_new_step true. A camera-angle change alone is not a new step."
+            "one concise phrase. For each CURRENT frame, set is_new_step true only when it "
+            "begins a distinct cooking step compared with the immediately preceding image. "
+            "For the first image, use the PREVIOUS context frame when supplied; otherwise set "
+            "is_new_step true. A camera-angle change alone is not a new step."
         ),
         input=[{"role": "user", "content": content}],
-        text_format=VisibleFrameAnalysis,
+        text_format=VisibleFrameAnalysisBatch,
     )
     if response.output_parsed is None:
-        raise RuntimeError(f"No parsed result returned for frame {current['frame_id']}")
-    return response.output_parsed
+        frame_ids = [frame["frame_id"] for frame, _ in current_frames]
+        raise RuntimeError(f"No parsed result returned for frames {frame_ids}")
+
+    parsed = response.output_parsed.frames
+    expected_ids = [frame["frame_id"] for frame, _ in current_frames]
+    actual_ids = [frame.frame_id for frame in parsed]
+    if actual_ids != expected_ids:
+        raise RuntimeError(
+            f"Unexpected frame IDs in response: expected {expected_ids}, got {actual_ids}"
+        )
+    return parsed
 
 
 def save_output(path: Path, model: str, manifest: Path, analyses: list[dict]) -> None:
@@ -139,8 +166,41 @@ def save_output(path: Path, model: str, manifest: Path, analyses: list[dict]) ->
     path.write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
 
-def main() -> None:
-    args = parse_args()
+def pending_batches(
+    frames: list[dict], manifest_dir: Path, completed_ids: set[int]
+) -> list[tuple[list[tuple[dict, Path]], dict | None, Path | None]]:
+    """Build batches without crossing gaps left by resumed analyses."""
+    batches: list[tuple[list[tuple[dict, Path]], dict | None, Path | None]] = []
+    index = 0
+    while index < len(frames):
+        if frames[index]["frame_id"] in completed_ids:
+            index += 1
+            continue
+
+        start = index
+        current_frames: list[tuple[dict, Path]] = []
+        while (
+            index < len(frames)
+            and len(current_frames) < BATCH_SIZE
+            and frames[index]["frame_id"] not in completed_ids
+        ):
+            frame = frames[index]
+            frame_path = manifest_dir / frame["file"]
+            if not frame_path.is_file():
+                raise SystemExit(f"Frame image not found: {frame_path}")
+            current_frames.append((frame, frame_path))
+            index += 1
+
+        previous = frames[start - 1] if start else None
+        previous_path = manifest_dir / previous["file"] if previous is not None else None
+        if previous_path is not None and not previous_path.is_file():
+            raise SystemExit(f"Frame image not found: {previous_path}")
+        batches.append((current_frames, previous, previous_path))
+
+    return batches
+
+
+async def run_analysis(args: argparse.Namespace) -> None:
     manifest_path, frames = load_manifest(args.manifest)
     output_path = (
         args.output.expanduser().resolve()
@@ -159,35 +219,49 @@ def main() -> None:
         raise SystemExit(f"Output already exists: {output_path}. Use --resume or choose -o.")
 
     completed_ids = {item["frame_id"] for item in analyses}
-    client = OpenAI()
-    previous_frame: dict | None = None
-    previous_path: Path | None = None
+    batches = pending_batches(frames, manifest_path.parent, completed_ids)
+    semaphore = asyncio.Semaphore(MAX_CONCURRENT_CALLS)
 
-    for frame in frames:
-        frame_path = manifest_path.parent / frame["file"]
-        if not frame_path.is_file():
-            raise SystemExit(f"Frame image not found: {frame_path}")
-        if frame["frame_id"] in completed_ids:
-            previous_frame = frame
-            previous_path = frame_path
-            continue
+    async def analyze_one_batch(client: AsyncOpenAI, batch):
+        current_frames, previous, previous_path = batch
+        frame_ids = [frame["frame_id"] for frame, _ in current_frames]
+        print(f"Analyzing frames {frame_ids}...", flush=True)
+        async with semaphore:
+            visible = await analyze_frame_batch(
+                client, args.model, args.detail, current_frames, previous, previous_path
+            )
+        return current_frames, visible
 
-        print(f"Analyzing frame {frame['frame_id']} at {frame['timestamp_s']:.3f}s...", flush=True)
-        visible = analyze_frame(
-            client, args.model, args.detail, frame, frame_path,
-            previous_frame, previous_path,
-        )
-        analyses.append({
-            "frame_id": frame["frame_id"],
-            "timestamp_s": frame["timestamp_s"],
-            **visible.model_dump(),
-        })
-        analyses.sort(key=lambda item: item["frame_id"])
-        save_output(output_path, args.model, manifest_path, analyses)
-        previous_frame = frame
-        previous_path = frame_path
+    if batches:
+        async with AsyncOpenAI() as client:
+            tasks = [
+                asyncio.create_task(analyze_one_batch(client, batch))
+                for batch in batches
+            ]
+            try:
+                for task in asyncio.as_completed(tasks):
+                    current_frames, visible_frames = await task
+                    timestamps = {
+                        frame["frame_id"]: frame["timestamp_s"]
+                        for frame, _ in current_frames
+                    }
+                    analyses.extend({
+                        **visible.model_dump(),
+                        "timestamp_s": timestamps[visible.frame_id],
+                    } for visible in visible_frames)
+                    analyses.sort(key=lambda item: item["frame_id"])
+                    save_output(output_path, args.model, manifest_path, analyses)
+            except BaseException:
+                for task in tasks:
+                    task.cancel()
+                await asyncio.gather(*tasks, return_exceptions=True)
+                raise
 
     print(f"Saved {len(analyses)} frame analyses to {output_path}")
+
+
+def main() -> None:
+    asyncio.run(run_analysis(parse_args()))
 
 
 if __name__ == "__main__":
