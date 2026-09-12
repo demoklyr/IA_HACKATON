@@ -91,11 +91,8 @@ class SerperSearchProvider:
         self._search_tool = search_tool or web_search
 
     async def search(self, query: str, limit: int = 10) -> list[CandidateVideo]:
-        serper_query = query.strip()
-        if "site:instagram.com" not in serper_query.lower():
-            serper_query = f"site:instagram.com/reel {serper_query}"
         response = await self._search_tool.ainvoke(
-            {"query": serper_query, "limit": limit}
+            {"query": _social_search_query(query), "limit": limit}
         )
         return _candidates_from_serper_response(response, limit)
 
@@ -163,3 +160,14 @@ def _social_video_platform(url: str) -> str | None:
     ):
         return "instagram"
     return None
+
+
+def _social_search_query(query: str) -> str:
+    normalized_query = query.strip()
+    lowered = normalized_query.lower()
+    if "site:instagram.com" in lowered:
+        return normalized_query
+    return (
+        f"{normalized_query} recipe video "
+        "(site:instagram.com/reel OR site:instagram.com/reels)"
+    )
