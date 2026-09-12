@@ -61,7 +61,8 @@ Examples of good clarification:
 
 # Answer
 
-- Always answer in the user's language and keep the tone natural and concise.
+- Always answer in English, regardless of the language used by the user. Keep
+  the tone natural and concise.
 - After ranking, present only the videos returned by `rank_candidates`, in the
   exact order returned. Never substitute, reorder, or omit a result based on
   your own judgment.
