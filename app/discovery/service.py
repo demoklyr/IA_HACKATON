@@ -5,24 +5,15 @@ from dotenv import load_dotenv
 from .agent import create_discovery_agent
 from .intent_agent import IntentParser, default_intent_parser
 from .models import CandidateVideo, DiscoveryRun
-from .social_search import GoogleInstagramSearchProvider, InstagramUrlScrapeProvider, MockSearchProvider, SocialSearchProvider, WebSearchProvider
+from .social_search import MockSearchProvider, SocialSearchProvider
 
 
 def default_search_provider() -> SocialSearchProvider:
     load_dotenv()
-    configured = os.getenv("DISCOVERY_SEARCH_PROVIDER")
-    provider_name = configured.lower() if configured else ("web" if os.getenv("OPENAI_API_KEY") else "mock")
+    provider_name = os.getenv("DISCOVERY_SEARCH_PROVIDER", "mock").lower()
     if provider_name == "mock":
         return MockSearchProvider()
-    if provider_name == "instagram":
-        return InstagramUrlScrapeProvider()
-    if provider_name == "google":
-        return GoogleInstagramSearchProvider()
-    if provider_name == "web":
-        if not os.getenv("OPENAI_API_KEY"):
-            raise RuntimeError("OPENAI_API_KEY is required when DISCOVERY_SEARCH_PROVIDER=web")
-        return WebSearchProvider()
-    raise ValueError("DISCOVERY_SEARCH_PROVIDER must be 'web', 'google', 'instagram', or 'mock'")
+    raise ValueError("DISCOVERY_SEARCH_PROVIDER must be 'mock' until a real search provider is implemented")
 
 
 async def run_discovery(

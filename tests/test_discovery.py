@@ -2,13 +2,12 @@ import pytest
 
 from app.discovery.query_planner import generate_queries, parse_intent
 from app.discovery.ranker import deduplicate_candidates, normalize_url, rank_candidates
-from types import SimpleNamespace
 
 from app.discovery.intent_agent import RuleBasedIntentParser
 from app.discovery.agent import LangChainReActDiscoveryAgent, _coerce_queries, create_discovery_agent
 from app.discovery.service import run_discovery
 from app.discovery.models import CandidateVideo
-from app.discovery.social_search import MockSearchProvider, WebSearchProvider, _instagram_reel_candidates_from_html, _search_engine_instagram_candidates_from_html
+from app.discovery.social_search import MockSearchProvider
 from app.discovery.tools import DiscoveryTools
 
 
@@ -97,96 +96,3 @@ def test_langchain_react_agent_requires_openai_key(monkeypatch):
 def test_langchain_react_query_coercion_handles_bad_json():
     assert _coerce_queries('["query one", "query two"]') == ["query one", "query two"]
     assert _coerce_queries('["query one\nquery two"]') == []
-
-
-@pytest.mark.asyncio
-async def test_web_search_provider_returns_only_instagram_reels():
-    instagram_url = "https://www.instagram.com/reel/ABC123/"
-    tiktok_url = "https://www.tiktok.com/@chef/video/123456"
-    youtube_url = "https://www.youtube.com/watch?v=abcdef"
-    response = SimpleNamespace(
-        output=[
-            SimpleNamespace(
-                type="web_search_call",
-                action=SimpleNamespace(
-                    type="search",
-                    sources=[
-                        SimpleNamespace(url=instagram_url),
-                        SimpleNamespace(url=tiktok_url),
-                        SimpleNamespace(url=youtube_url),
-                        SimpleNamespace(url="https://www.instagram.com/explore/"),
-                    ],
-                ),
-            ),
-            SimpleNamespace(
-                type="message",
-                content=[
-                    SimpleNamespace(
-                        annotations=[
-                            SimpleNamespace(
-                                type="url_citation",
-                                url=instagram_url,
-                                title="Easy vegetarian tacos",
-                            )
-                        ]
-                    )
-                ],
-            ),
-        ]
-    )
-
-    class FakeResponses:
-        def __init__(self):
-            self.kwargs = None
-
-        async def create(self, **kwargs):
-            self.kwargs = kwargs
-            return response
-
-    fake_responses = FakeResponses()
-    fake_client = SimpleNamespace(responses=fake_responses)
-    provider = WebSearchProvider(model="gpt-4.1-mini", client=fake_client)
-
-    candidates = await provider.search_many(
-        ["vegetarian tacos", "easy meatless tacos"],
-        limit=5,
-    )
-
-    assert [candidate.url for candidate in candidates] == [instagram_url]
-    assert candidates[0].caption == "Easy vegetarian tacos"
-    assert fake_responses.kwargs["tools"][0]["filters"]["allowed_domains"] == ["instagram.com"]
-    assert "1. vegetarian tacos" in fake_responses.kwargs["input"]
-    assert "2. easy meatless tacos" in fake_responses.kwargs["input"]
-
-
-def test_instagram_html_extraction_returns_only_reels():
-    html = """
-    <a href=\"https://www.instagram.com/reel/ABC123/?utm_source=ig_web_copy_link\">Reel</a>
-    <a href=\"https://www.instagram.com/p/NOTAREEL/\">Post</a>
-    https:\\/\\/www.instagram.com\\/reel\\/DEF456\\/
-    """
-
-    candidates = _instagram_reel_candidates_from_html(html, limit=10)
-
-    assert [candidate.url for candidate in candidates] == [
-        "https://www.instagram.com/reel/ABC123/",
-        "https://www.instagram.com/reel/DEF456/",
-    ]
-
-
-def test_search_engine_html_extraction_returns_only_instagram_reels():
-    html = """
-    <a href="/url?q=https://www.instagram.com/reels/ABC123/?igsh=demo&sa=U">Reel</a>
-    <a href="/l/?kh=-1&uddg=https%3A%2F%2Fwww.instagram.com%2Freel%2FDUCK123%2F">Duck</a>
-    <a href="/url?q=https://www.tiktok.com/@chef/video/123&sa=U">TikTok</a>
-    <a href="https://www.instagram.com/p/NOTAREEL/">Post</a>
-    <a href="https://www.instagram.com/reel/DEF456/">Another Reel</a>
-    """
-
-    candidates = _search_engine_instagram_candidates_from_html(html, limit=10)
-
-    assert [candidate.url for candidate in candidates] == [
-        "https://www.instagram.com/reel/ABC123/",
-        "https://www.instagram.com/reel/DUCK123/",
-        "https://www.instagram.com/reel/DEF456/",
-    ]
