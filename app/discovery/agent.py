@@ -252,13 +252,11 @@ class LangChainReActDiscoveryAgent(RecipeDiscoveryAgent):
         messages.append(
             {
                 "role": "user",
-                "content": (
-                    f"Find recipe videos for: {query}\n"
-                    f"Return at most {limit} ranked results."
-                ),
+                "content": f"{query}\n\nMaximum number of results: {limit}.",
             }
         )
         agent_result = await self._agent.ainvoke({"messages": messages})
+        assistant_message = _last_assistant_message(agent_result)
 
         recipe = _extract_instagram_recipe(agent_result)
         if recipe is not None:
@@ -277,6 +275,7 @@ class LangChainReActDiscoveryAgent(RecipeDiscoveryAgent):
                 ),
                 results=results if isinstance(results, list) else [],
                 recipe=recipe,
+                assistant_message=assistant_message,
             )
             self.memory.remember(
                 query,
@@ -288,6 +287,20 @@ class LangChainReActDiscoveryAgent(RecipeDiscoveryAgent):
         queries = self._state.get("queries", [])
         raw_candidates = self._state.get("candidates", [])
         completed_search = isinstance(queries, list) and bool(queries)
+        if not completed_search and assistant_message:
+            discovery = DiscoveryRun(
+                queries=[],
+                raw_candidates=[],
+                results=[],
+                assistant_message=assistant_message,
+            )
+            self.memory.remember(
+                query,
+                assistant_message,
+                normalized_conversation_id,
+            )
+            return discovery
+
         if not completed_search:
             raw_candidates = await self.tools.search_videos(query, limit=10)
             queries = [query]
@@ -318,6 +331,7 @@ class LangChainReActDiscoveryAgent(RecipeDiscoveryAgent):
             queries=queries if isinstance(queries, list) else [],
             raw_candidates=raw_candidates,
             results=results if isinstance(results, list) else [],
+            assistant_message=assistant_message,
         )
         self.memory.remember(
             query,
@@ -430,3 +444,33 @@ def _extract_instagram_recipe(agent_result: Any) -> dict[str, Any] | None:
         if isinstance(recipe, dict) and {"steps", "ingredients"} <= recipe.keys():
             return recipe
     return None
+
+
+def _last_assistant_message(agent_result: Any) -> str:
+    """Extract the last natural-language answer produced by the model."""
+    if not isinstance(agent_result, dict):
+        return ""
+    messages = agent_result.get("messages")
+    if not isinstance(messages, list):
+        return ""
+
+    for message in reversed(messages):
+        if isinstance(message, dict):
+            role = message.get("role")
+            content = message.get("content")
+        else:
+            role = getattr(message, "type", None)
+            content = getattr(message, "content", None)
+
+        if role not in {"assistant", "ai"}:
+            continue
+        if isinstance(content, str):
+            return content.strip()
+        if isinstance(content, list):
+            parts = [
+                item.get("text", "")
+                for item in content
+                if isinstance(item, dict) and item.get("type") == "text"
+            ]
+            return "\n".join(part for part in parts if part).strip()
+    return ""

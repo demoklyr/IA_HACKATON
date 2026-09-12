@@ -5,6 +5,11 @@ from app.discovery.agent import ConversationMemory, create_langchain_react_agent
 
 
 def _print_discovery(discovery) -> None:
+    if discovery.assistant_message:
+        print(f"\nAgent: {discovery.assistant_message}")
+        if not discovery.queries and not discovery.results and discovery.recipe is None:
+            return
+
     if discovery.recipe is not None:
         print("\nRECIPE")
         print(json.dumps(discovery.recipe, indent=2, ensure_ascii=False))

@@ -20,3 +20,4 @@ class DiscoveryRun(BaseModel):
     raw_candidates: list[CandidateVideo]
     results: list[CandidateVideo]
     recipe: dict[str, Any] | None = None
+    assistant_message: str = ""
