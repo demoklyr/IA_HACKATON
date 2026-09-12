@@ -1,5 +1,6 @@
 import argparse
 import asyncio
+import json
 import os
 
 from dotenv import load_dotenv
@@ -13,6 +14,11 @@ def _key_state(name: str) -> str:
 
 def _print_discovery(user_query: str, discovery) -> None:
     print("USER REQUEST\n" + user_query)
+
+    if discovery.recipe is not None:
+        print("\nRECIPE")
+        print(json.dumps(discovery.recipe, indent=2, ensure_ascii=False))
+        return
 
     print("\nSEARCH QUERIES")
     for index, query in enumerate(discovery.queries, 1):
