@@ -5,6 +5,11 @@ from app.discovery.agent import ConversationMemory, create_langchain_react_agent
 
 
 def _print_discovery(discovery) -> None:
+    if discovery.instagram_post is not None:
+        print("\nINSTAGRAM POST")
+        print(json.dumps(discovery.instagram_post, indent=2, ensure_ascii=False))
+        return
+
     if discovery.recipe is not None:
         print("\nRECIPE")
         print(json.dumps(discovery.recipe, indent=2, ensure_ascii=False))
