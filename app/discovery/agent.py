@@ -1,18 +1,16 @@
+import ast
 import json
 import os
-import ast
 from dataclasses import dataclass
 from typing import Any
 
-from .intent_agent import IntentParser, RuleBasedIntentParser, default_intent_parser
-from .models import CandidateVideo, DiscoveryRun, SearchIntent
+from .models import CandidateVideo, DiscoveryRun
 from .social_search import SocialSearchProvider
 from .tools import DiscoveryTools
 
 
 @dataclass
 class AgentRuntime:
-    intent_parser: str
     search_provider: str
 
 
@@ -24,74 +22,41 @@ class ReActStep:
 
 
 class RecipeDiscoveryAgent:
+    """Small deterministic fallback using the same tools as the ReAct agent."""
+
     def __init__(self, tools: DiscoveryTools) -> None:
         self.tools = tools
         self.trace: list[ReActStep] = []
 
     @property
     def runtime(self) -> AgentRuntime:
-        return AgentRuntime(
-            intent_parser=type(self.tools.intent_parser).__name__,
-            search_provider=type(self.tools.search_provider).__name__,
-        )
+        return AgentRuntime(search_provider=type(self.tools.search_provider).__name__)
 
     async def run(self, user_query: str, limit: int = 3) -> DiscoveryRun:
-        if not user_query.strip():
+        query = user_query.strip()
+        if not query:
             raise ValueError("user_query must not be empty")
 
         self.trace = []
-
         self._record(
-            thought="I need to understand the user's recipe constraints before searching.",
-            action="parse_intent",
-            observation="pending",
-        )
-
-        intent = await self.tools.parse_intent(user_query)
-        self.trace[-1].observation = (
-            f"vegetarian={intent.vegetarian}, max_time={intent.max_time_minutes}, "
-            f"excluded={intent.excluded_ingredients}"
-        )
-
-        self._record(
-            thought="I need search phrases that preserve the parsed constraints.",
-            action="plan_queries",
-            observation="pending",
-        )
-        queries = self.tools.plan_queries(user_query, intent)
-
-        self.trace[-1].observation = f"planned {len(queries)} queries"
-
-        self._record(
-            thought="I should search for candidate social video URLs with the configured provider.",
+            thought="I should search for videos matching the user's request.",
             action="search_videos",
             observation="pending",
         )
-        candidates = await self.tools.search_videos(queries, limit=10)
-
+        candidates = await self.tools.search_videos(query, limit=10)
         self.trace[-1].observation = f"found {len(candidates)} candidates"
 
         self._record(
-            thought="I should remove repeated URLs before ranking.",
-            action="deduplicate",
+            thought="I should rank the candidates against the original request.",
+            action="rank_candidates",
             observation="pending",
         )
-        raw_candidates = self.tools.deduplicate(candidates)
-
-        self.trace[-1].observation = f"kept {len(raw_candidates)} unique candidates"
-
-        self._record(
-            thought="I should rank candidates against the original request and parsed intent.",
-            action="rank",
-            observation="pending",
-        )
-        results = self.tools.rank(raw_candidates, user_query, intent)[:max(limit, 0)]
-
+        results = self.tools.rank(candidates, query)[:max(limit, 0)]
         self.trace[-1].observation = f"selected {len(results)} top results"
+
         return DiscoveryRun(
-            intent=intent,
-            queries=queries,
-            raw_candidates=raw_candidates,
+            queries=[query],
+            raw_candidates=candidates,
             results=results,
         )
 
@@ -100,15 +65,11 @@ class RecipeDiscoveryAgent:
 
 
 def create_discovery_agent(
-    intent_parser: IntentParser | None = None,
     search_provider: SocialSearchProvider | None = None,
 ) -> RecipeDiscoveryAgent:
     from .service import default_search_provider
 
-    tools = DiscoveryTools(
-        intent_parser=intent_parser or default_intent_parser(),
-        search_provider=search_provider or default_search_provider(),
-    )
+    tools = DiscoveryTools(search_provider=search_provider or default_search_provider())
     return RecipeDiscoveryAgent(tools)
 
 
@@ -124,73 +85,45 @@ class LangChainReActDiscoveryAgent(RecipeDiscoveryAgent):
         self._state: dict[str, object] = {}
 
         @tool
-        async def parse_intent(user_query: str) -> str:
-            """Parse a natural-language recipe video request into structured constraints."""
-            intent = await self.tools.parse_intent(user_query)
-            self._state["intent"] = intent
-            self._record(
-                "I need to understand the user's recipe constraints before searching.",
-                "parse_intent",
-                f"vegetarian={intent.vegetarian}, max_time={intent.max_time_minutes}, excluded={intent.excluded_ingredients}",
-            )
-            return intent.model_dump_json()
+        async def search_videos(query: str, limit: int = 10) -> str:
+            """Search recipe videos using one precise query and return candidate JSON."""
+            normalized_query = query.strip()
+            if not normalized_query:
+                raise ValueError("query must not be empty")
 
-        @tool
-        async def plan_queries(user_query: str, intent_json: str) -> str:
-            """Create search queries from the user request and parsed intent JSON."""
-            intent = _coerce_intent(intent_json) or self._state.get("intent")
-            if not isinstance(intent, SearchIntent):
-                raise ValueError("plan_queries requires a parsed intent")
-            queries = self.tools.plan_queries(user_query, intent)
-            self._state["queries"] = queries
-            self._record(
-                "I need search phrases that preserve the parsed constraints.",
-                "plan_queries",
-                f"planned {len(queries)} queries",
-            )
-            return json.dumps(queries)
+            candidates = await self.tools.search_videos(normalized_query, limit=limit)
+            queries = self._state.setdefault("queries", [])
+            stored_candidates = self._state.setdefault("candidates", [])
+            if isinstance(queries, list):
+                queries.append(normalized_query)
+            if isinstance(stored_candidates, list):
+                stored_candidates.extend(candidates)
 
-        @tool
-        async def search_videos(queries_json: str, limit: int = 10) -> str:
-            """Search for candidate recipe video URLs from a JSON list of query strings."""
-            queries = _coerce_queries(queries_json) or self._state.get("queries")
-            if not isinstance(queries, list):
-                raise ValueError("search_videos requires planned queries")
-            candidates = await self.tools.search_videos(queries, limit=limit)
-            self._state["candidates"] = candidates
             self._record(
-                "I should search for candidate social video URLs with the configured provider.",
+                "I should search for videos matching the user's request.",
                 "search_videos",
                 f"found {len(candidates)} candidates",
             )
             return json.dumps([candidate.model_dump() for candidate in candidates])
 
         @tool
-        def deduplicate_candidates(candidates_json: str) -> str:
-            """Deduplicate candidate video URLs from candidate JSON."""
-            candidates = _coerce_candidates(candidates_json) or self._state.get("candidates")
-            if not isinstance(candidates, list):
-                raise ValueError("deduplicate_candidates requires candidates")
-            unique_candidates = self.tools.deduplicate(candidates)
-            self._state["raw_candidates"] = unique_candidates
-            self._record(
-                "I should remove repeated URLs before ranking.",
-                "deduplicate_candidates",
-                f"kept {len(unique_candidates)} unique candidates",
-            )
-            return json.dumps([candidate.model_dump() for candidate in unique_candidates])
+        def rank_candidates(
+            user_query: str,
+            candidates_json: str = "",
+            limit: int = 3,
+        ) -> str:
+            """Rank candidate video JSON; omit candidates_json to rank prior search results."""
+            candidates = _coerce_candidates(candidates_json)
+            if not candidates:
+                stored_candidates = self._state.get("candidates", [])
+                if isinstance(stored_candidates, list):
+                    candidates = stored_candidates
 
-        @tool
-        def rank_candidates(candidates_json: str, user_query: str, intent_json: str, limit: int = 3) -> str:
-            """Rank candidate videos against the user request and parsed intent JSON."""
-            candidates = _coerce_candidates(candidates_json) or self._state.get("raw_candidates")
-            intent = _coerce_intent(intent_json) or self._state.get("intent")
-            if not isinstance(candidates, list) or not isinstance(intent, SearchIntent):
-                raise ValueError("rank_candidates requires candidates and parsed intent")
-            ranked = self.tools.rank(candidates, user_query, intent)[:max(limit, 0)]
+            ranked = self.tools.rank(candidates, user_query)[:max(limit, 0)]
             self._state["results"] = ranked
+            self._state["ranked"] = True
             self._record(
-                "I should rank candidates against the original request and parsed intent.",
+                "I should rank the candidates against the original request.",
                 "rank_candidates",
                 f"selected {len(ranked)} top results",
             )
@@ -198,23 +131,18 @@ class LangChainReActDiscoveryAgent(RecipeDiscoveryAgent):
 
         self._agent = create_agent(
             model=model,
-            tools=[
-                parse_intent,
-                plan_queries,
-                search_videos,
-                deduplicate_candidates,
-                rank_candidates,
-            ],
+            tools=[search_videos, rank_candidates],
             system_prompt=(
-                "You are a minimal ReAct recipe video discovery agent. "
-                "Use the tools in this exact order: parse_intent, plan_queries, "
-                "search_videos, deduplicate_candidates, rank_candidates. "
-                "Do not invent URLs. After ranking, give a concise final answer."
+                "You are a minimal ReAct recipe-video discovery agent. "
+                "Turn the user's request into a precise search query, call search_videos, "
+                "then call rank_candidates. You may search again with a better query when useful. "
+                "Never invent URLs. After ranking, give a concise final answer."
             ),
         )
 
     async def run(self, user_query: str, limit: int = 3) -> DiscoveryRun:
-        if not user_query.strip():
+        query = user_query.strip()
+        if not query:
             raise ValueError("user_query must not be empty")
 
         self.trace = []
@@ -225,7 +153,7 @@ class LangChainReActDiscoveryAgent(RecipeDiscoveryAgent):
                     {
                         "role": "user",
                         "content": (
-                            f"Find recipe videos for: {user_query}\n"
+                            f"Find recipe videos for: {query}\n"
                             f"Return at most {limit} ranked results."
                         ),
                     }
@@ -233,14 +161,15 @@ class LangChainReActDiscoveryAgent(RecipeDiscoveryAgent):
             }
         )
 
-        intent = self._state.get("intent")
         queries = self._state.get("queries", [])
-        raw_candidates = self._state.get("raw_candidates", [])
+        raw_candidates = self._state.get("candidates", [])
         results = self._state.get("results", [])
-        if not isinstance(intent, SearchIntent):
-            raise RuntimeError("LangChain ReAct agent did not call parse_intent")
+        if not queries:
+            raise RuntimeError("LangChain ReAct agent did not call search_videos")
+        if not self._state.get("ranked"):
+            raise RuntimeError("LangChain ReAct agent did not call rank_candidates")
+
         return DiscoveryRun(
-            intent=intent,
             queries=queries if isinstance(queries, list) else [],
             raw_candidates=raw_candidates if isinstance(raw_candidates, list) else [],
             results=results if isinstance(results, list) else [],
@@ -248,19 +177,19 @@ class LangChainReActDiscoveryAgent(RecipeDiscoveryAgent):
 
 
 def create_langchain_react_agent(
-    intent_parser: IntentParser | None = None,
     search_provider: SocialSearchProvider | None = None,
     model: str | None = None,
 ) -> LangChainReActDiscoveryAgent:
     from .service import default_search_provider
 
-    tools = DiscoveryTools(
-        intent_parser=intent_parser or RuleBasedIntentParser(),
-        search_provider=search_provider or default_search_provider(),
-    )
+    tools = DiscoveryTools(search_provider=search_provider or default_search_provider())
     return LangChainReActDiscoveryAgent(
         tools=tools,
-        model=model or os.getenv("DISCOVERY_REACT_MODEL", os.getenv("DISCOVERY_MODEL", "openai:gpt-4.1-mini")),
+        model=model
+        or os.getenv(
+            "DISCOVERY_REACT_MODEL",
+            os.getenv("DISCOVERY_MODEL", "openai:gpt-4.1-mini"),
+        ),
     )
 
 
@@ -277,13 +206,6 @@ def _loads_loose(value: Any) -> Any:
         return None
 
 
-def _coerce_queries(value: Any) -> list[str]:
-    parsed = _loads_loose(value)
-    if isinstance(parsed, list):
-        return [str(item) for item in parsed if str(item).strip()]
-    return []
-
-
 def _coerce_candidates(value: Any) -> list[CandidateVideo]:
     parsed = _loads_loose(value)
     if not isinstance(parsed, list):
@@ -295,17 +217,3 @@ def _coerce_candidates(value: Any) -> list[CandidateVideo]:
         elif isinstance(item, dict):
             candidates.append(CandidateVideo.model_validate(item))
     return candidates
-
-
-def _coerce_intent(value: Any) -> SearchIntent | None:
-    if isinstance(value, SearchIntent):
-        return value
-    if isinstance(value, str):
-        try:
-            return SearchIntent.model_validate_json(value)
-        except ValueError:
-            pass
-    parsed = _loads_loose(value)
-    if isinstance(parsed, dict):
-        return SearchIntent.model_validate(parsed)
-    return None

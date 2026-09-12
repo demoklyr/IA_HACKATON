@@ -1,6 +1,6 @@
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 
 class CandidateVideo(BaseModel):
@@ -15,21 +15,7 @@ class CandidateVideo(BaseModel):
     score_explanation: str | None = None
 
 
-class SearchIntent(BaseModel):
-    cuisine: str | None = None
-    max_time_minutes: int | None = None
-    high_protein: bool = False
-    low_calorie: bool = False
-    vegetarian: bool = False
-    excluded_ingredients: list[str] = Field(default_factory=list)
-    preferred_ingredients: list[str] = Field(default_factory=list)
-    difficulty: str | None = None
-    free_form_constraints: list[str] = Field(default_factory=list)
-    raw_query: str = ""
-
-
 class DiscoveryRun(BaseModel):
-    intent: SearchIntent
     queries: list[str]
     raw_candidates: list[CandidateVideo]
     results: list[CandidateVideo]

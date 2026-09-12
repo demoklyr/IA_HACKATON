@@ -3,7 +3,6 @@ import os
 from dotenv import load_dotenv
 
 from .agent import create_discovery_agent
-from .intent_agent import IntentParser, default_intent_parser
 from .models import CandidateVideo, DiscoveryRun
 from .social_search import MockSearchProvider, SerperSearchProvider, SocialSearchProvider
 
@@ -24,10 +23,8 @@ async def run_discovery(
     user_query: str,
     limit: int = 3,
     provider: SocialSearchProvider | None = None,
-    intent_parser: IntentParser | None = None,
 ) -> DiscoveryRun:
     agent = create_discovery_agent(
-        intent_parser=intent_parser or default_intent_parser(),
         search_provider=provider or default_search_provider(),
     )
     return await agent.run(user_query, limit)

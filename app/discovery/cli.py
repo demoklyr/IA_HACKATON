@@ -7,8 +7,7 @@ from .service import run_discovery
 async def run(user_query: str, limit: int = 3) -> None:
     discovery = await run_discovery(user_query, limit)
     print("USER REQUEST\n" + user_query)
-    print("\nPARSED INTENT\n" + discovery.intent.model_dump_json(indent=2))
-    print("\nGENERATED QUERIES")
+    print("\nSEARCH QUERIES")
     for index, query in enumerate(discovery.queries, 1):
         print(f"{index}. {query}")
     print("\nRAW CANDIDATES")

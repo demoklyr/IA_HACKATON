@@ -20,9 +20,9 @@ For now, the only bundled provider is deterministic offline mock data:
 DISCOVERY_SEARCH_PROVIDER=mock
 ```
 
-### Intent agent
+### Minimal ReAct agent
 
-Without an API key, discovery uses the local rule-based parser. To enable the LangChain intent agent, copy `.env.example` to `.env` and set:
+To run the LangChain ReAct agent, copy `.env.example` to `.env` and set:
 
 ```dotenv
 OPENAI_API_KEY=your-key
@@ -30,7 +30,13 @@ DISCOVERY_MODEL=openai:gpt-4.1-mini
 DISCOVERY_SEARCH_PROVIDER=mock
 ```
 
-The agent instructions live in `app/discovery/skills/intent_parser.md`, so they can evolve without changing Python code. LangChain is intentionally limited to intent parsing; URL deduplication and ranking remain deterministic.
+Then run:
+
+```bash
+python main.py --langchain-react "I want an easy vegetarian Mexican recipe"
+```
+
+The agent has two tools: `search_videos`, which sends the model's query to the configured search provider, and `rank_candidates`, which ranks the returned URLs. There is no separate intent parser or query planner.
 
 ## Serper web-search tool
 
