@@ -3,11 +3,15 @@ import json
 import os
 from collections import deque
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from .models import CandidateVideo, DiscoveryRun
 from .social_search import SocialSearchProvider
 from .tools import DiscoveryTools
+
+
+SYSTEM_PROMPT_PATH = Path(__file__).with_name("prompts") / "system_prompt.md"
 
 
 @dataclass
@@ -166,6 +170,7 @@ class LangChainReActDiscoveryAgent(RecipeDiscoveryAgent):
         tools: DiscoveryTools,
         model: str,
         memory: ConversationMemory | None = None,
+        system_prompt: str | None = None,
     ) -> None:
         if not os.getenv("OPENAI_API_KEY"):
             raise RuntimeError("OPENAI_API_KEY is required for --langchain-react")
@@ -226,16 +231,7 @@ class LangChainReActDiscoveryAgent(RecipeDiscoveryAgent):
         self._agent = create_agent(
             model=model,
             tools=[search_videos, rank_candidates, create_recipe_from_instagram],
-            system_prompt=(
-                "You are a minimal ReAct Instagram recipe-video discovery agent. "
-                "Use the conversation history to resolve follow-up requests and refinements. "
-                "Turn the user's request into a precise Instagram Reel search query, call search_videos, "
-                "then call rank_candidates. You may search again with a better query when useful. "
-                "When the user explicitly asks to create or extract a recipe from a public "
-                "Instagram URL, or from a previously selected Instagram result, call "
-                "create_recipe_from_instagram with that URL. "
-                "Never invent URLs. After ranking, give a concise final answer."
-            ),
+            system_prompt=system_prompt or load_system_prompt(),
         )
 
     async def run(
@@ -336,6 +332,7 @@ def create_langchain_react_agent(
     model: str | None = None,
     *,
     memory: ConversationMemory | None = None,
+    system_prompt: str | None = None,
 ) -> LangChainReActDiscoveryAgent:
     from .service import default_search_provider
 
@@ -348,7 +345,13 @@ def create_langchain_react_agent(
             os.getenv("DISCOVERY_MODEL", "openai:gpt-4.1-mini"),
         ),
         memory=memory,
+        system_prompt=system_prompt,
     )
+
+
+def load_system_prompt() -> str:
+    """Load the editable discovery-agent instructions from disk."""
+    return SYSTEM_PROMPT_PATH.read_text(encoding="utf-8").strip()
 
 
 def _normalize_conversation_id(conversation_id: str) -> str:

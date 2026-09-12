@@ -32,7 +32,7 @@ async def main() -> None:
     )
     conversation_id = "terminal-chat"
 
-    print("Recipe discovery chat")
+    print("Agent: Quelle recette cherches-tu sur Instagram ?")
     print("Type 'clear' to forget the conversation or 'quit' to exit.")
 
     while True:
