@@ -72,9 +72,14 @@ model_cycle = itertools.cycle(MODELS)
 # ==========================================
 # CONFIGURATION RECETTE
 # ==========================================
-with open("recipe_compote.json", "r", encoding="utf-8") as f:
+recipe_path = "current_recipe.json"
+if not os.path.exists(recipe_path):
+    print(f"❌ {recipe_path} n'existe pas. Veuillez extraire une recette depuis le frontend d'abord.")
+    exit()
+    
+with open(recipe_path, "r", encoding="utf-8") as f:
     recipe = json.load(f)
-steps = recipe["steps"]
+steps = recipe.get("steps", [])
 
 # Calcul dynamique de tous les objets qui existent dans la recette
 all_recipe_objects = set()
@@ -199,10 +204,12 @@ while cap.isOpened() and current_step_idx < len(steps):
         break
         
     step = steps[current_step_idx]
+    instruction = step.get("description", step.get("instruction", ""))
+    step_id = step.get("stepNumber", step.get("id", current_step_idx + 1))
     
     # Annonce vocale de l'étape au début
     if not step_announced:
-        speak(step["instruction"])
+        speak(instruction)
         step_announced = True
 
     current_time = time.time()
@@ -219,7 +226,7 @@ while cap.isOpened() and current_step_idx < len(steps):
     h, w, _ = frame.shape
     cv2.rectangle(frame, (0, 0), (w, 110), (0, 0, 0), -1)
     
-    status_text = f"Step {step['id']} / {len(steps)}"
+    status_text = f"Step {step_id} / {len(steps)}"
     cv2.putText(frame, status_text, (15, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
     
     statut = "[Analyzing...]" if is_analyzing else "[OK]"
