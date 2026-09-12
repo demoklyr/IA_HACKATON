@@ -97,7 +97,7 @@ export function normalizeRecipe(raw: RawRecipeResponse, sourceUrl: string): Reci
 
   return {
     id: sourceUrl, // no recipe id is returned by the backend — the source URL doubles as a stable key
-    title: ensureRawText(raw.title) ?? "Recette",
+    title: ensureRawText(raw.name) ?? "Recette",
     source_url: sourceUrl,
     ingredients,
     steps,

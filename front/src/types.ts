@@ -42,7 +42,7 @@ export type RawRecipeIngredient =
 
 /** Raw shape returned by POST /api/recipe/from-url, mirroring recipe.json. */
 export interface RawRecipeResponse {
-  title?: string;
+  name?: string;
   steps: RawRecipeStep[];
   ingredients: RawRecipeIngredient[];
   [key: string]: unknown;
