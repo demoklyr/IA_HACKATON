@@ -58,3 +58,15 @@ DISCOVERY_SEARCH_MODEL=gpt-5.5
 ```
 
 The agent instructions live in `app/discovery/skills/intent_parser.md`, so they can evolve without changing Python code. LangChain is intentionally limited to intent parsing; URL deduplication and ranking remain deterministic.
+
+## Serper web-search tool
+
+`app.web_search_tool.web_search` is a LangChain tool for general Google web
+searches through Serper. Add the key to `.env` before invoking it:
+
+```dotenv
+SERPER_API_KEY=your-key
+```
+
+The tool accepts a `query` and an optional `limit` (1–100), and returns the
+JSON response from Serper without scraping result pages.
