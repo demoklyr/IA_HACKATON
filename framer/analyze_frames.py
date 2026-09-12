@@ -8,6 +8,7 @@ import asyncio
 import base64
 import json
 import mimetypes
+import sys
 from pathlib import Path
 from typing import Optional
 
@@ -19,8 +20,8 @@ from pydantic import BaseModel, Field
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 load_dotenv(PROJECT_ROOT / ".env")
 
-BATCH_SIZE = 4
-MAX_CONCURRENT_CALLS = 5
+BATCH_SIZE = 5
+MAX_CONCURRENT_CALLS = 10
 
 
 class VisibleFrameAnalysis(BaseModel):
@@ -41,6 +42,41 @@ class VisibleFrameAnalysisBatch(BaseModel):
     frames: list[VisibleFrameAnalysis] = Field(
         description="One analysis for each CURRENT frame, in the supplied order"
     )
+
+
+def normalize_frame_analyses(
+    parsed: list[VisibleFrameAnalysis], expected_ids: list[int]
+) -> list[VisibleFrameAnalysis]:
+    """Keep requested frames in order and safely ignore model-added extras."""
+    by_id: dict[int, VisibleFrameAnalysis] = {}
+    duplicate_ids: set[int] = set()
+    for analysis in parsed:
+        if analysis.frame_id in by_id:
+            duplicate_ids.add(analysis.frame_id)
+        else:
+            by_id[analysis.frame_id] = analysis
+
+    missing_ids = [frame_id for frame_id in expected_ids if frame_id not in by_id]
+    duplicated_expected_ids = sorted(duplicate_ids.intersection(expected_ids))
+    if missing_ids or duplicated_expected_ids:
+        actual_ids = [analysis.frame_id for analysis in parsed]
+        raise RuntimeError(
+            "Invalid frame IDs in response: "
+            f"expected {expected_ids}, got {actual_ids}; "
+            f"missing {missing_ids}, duplicated {duplicated_expected_ids}"
+        )
+
+    unexpected_ids = [
+        analysis.frame_id for analysis in parsed
+        if analysis.frame_id not in expected_ids
+    ]
+    if unexpected_ids:
+        print(
+            f"Warning: ignoring unexpected frame IDs returned by model: {unexpected_ids}",
+            file=sys.stderr,
+        )
+
+    return [by_id[frame_id] for frame_id in expected_ids]
 
 
 def parse_args() -> argparse.Namespace:
@@ -148,12 +184,7 @@ async def analyze_frame_batch(
 
     parsed = response.output_parsed.frames
     expected_ids = [frame["frame_id"] for frame, _ in current_frames]
-    actual_ids = [frame.frame_id for frame in parsed]
-    if actual_ids != expected_ids:
-        raise RuntimeError(
-            f"Unexpected frame IDs in response: expected {expected_ids}, got {actual_ids}"
-        )
-    return parsed
+    return normalize_frame_analyses(parsed, expected_ids)
 
 
 def save_output(path: Path, model: str, manifest: Path, analyses: list[dict]) -> None:

@@ -3,7 +3,7 @@
 This module has two stages:
 
 1. `framer.py` uses FFmpeg to sample the video, detect scene changes, remove near-duplicate images, and create `frames.json`.
-2. `analyze_frames.py` sends batches of four frames to GPT-5 nano, with up to five API calls in flight, and writes structured visual descriptions.
+2. `analyze_frames.py` sends batches of five frames to GPT-5 nano, with up to six API calls in flight, and writes structured visual descriptions.
 
 ## Install
 
@@ -36,14 +36,20 @@ Useful tuning options:
 
 ```bash
 python framer/framer.py VIDEO \
-  --interval 1.0 \
+  --interval 2.0 \
   --scene-threshold 0.35 \
   --duplicate-distance 6 \
   --duplicate-color-distance 30 \
-  --max-frames 120
+  --max-frames 32
 ```
 
-A lower scene threshold keeps more scene changes. Higher duplicate hash and color distances remove more visually similar frames.
+The defaults keep at most 32 frames, prioritizing scene changes and then spreading the
+remaining frames over the video's full duration. This substantially reduces analysis time
+while preserving the first frame, last frame, important cuts, and broad temporal context.
+
+A lower scene threshold keeps more scene changes. Higher duplicate hash and color distances
+remove more visually similar frames. For an even faster run, try `--max-frames 20`; for a
+long or unusually detailed video, try `--max-frames 48`.
 
 ## Analyze frames with OpenAI
 
@@ -63,7 +69,7 @@ python framer/analyze_frames.py \
   -o insta_scraper/downloads/DU3Rmy5Dvqf/frames/full_frame_analysis.json
 ```
 
-The analysis is saved after every successful four-frame batch. If a run is interrupted, continue it with:
+The analysis is saved after every successful five-frame batch. If a run is interrupted, continue it with:
 
 ```bash
 python framer/analyze_frames.py \

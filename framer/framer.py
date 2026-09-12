@@ -44,8 +44,8 @@ def parse_args() -> argparse.Namespace:
         help="Output directory (default: <video directory>/frames)",
     )
     parser.add_argument(
-        "--interval", type=float, default=1.0,
-        help="Seconds between regular samples (default: 1.0)",
+        "--interval", type=float, default=2.0,
+        help="Seconds between regular samples (default: 2.0)",
     )
     parser.add_argument(
         "--scene-threshold", type=float, default=0.35,
@@ -60,8 +60,8 @@ def parse_args() -> argparse.Namespace:
         help="Maximum average RGB distance considered a duplicate (default: 30)",
     )
     parser.add_argument(
-        "--max-frames", type=int, default=120,
-        help="Maximum frames to keep after deduplication (default: 120)",
+        "--max-frames", type=int, default=32,
+        help="Maximum frames to keep after deduplication (default: 32)",
     )
     parser.add_argument(
         "--overwrite", action="store_true",
@@ -169,13 +169,70 @@ def hamming_distance(first: int, second: int) -> int:
     return bin(first ^ second).count("1")
 
 
+def evenly_spaced(items: list[Candidate], count: int) -> list[Candidate]:
+    """Select items across the complete time range, including both ends."""
+    if count <= 0:
+        return []
+    if count >= len(items):
+        return list(items)
+    indexes = {
+        round(index * (len(items) - 1) / max(count - 1, 1))
+        for index in range(count)
+    }
+    return [item for index, item in enumerate(items) if index in indexes]
+
+
+def limit_frames(kept: list[Candidate], max_frames: int) -> list[Candidate]:
+    """Honor the frame budget while retaining cuts and broad temporal coverage."""
+    if len(kept) <= max_frames:
+        return kept
+
+    boundaries = [
+        item for item in kept if item.reason in {"first_frame", "last_frame"}
+    ]
+    available = max(0, max_frames - len(boundaries))
+    interior = [item for item in kept if item not in boundaries]
+    scene_changes = [item for item in interior if item.reason == "scene_change"]
+
+    # Give scene changes most of the interior budget because cuts often mark a new
+    # recipe step. Sampling them across time prevents rapid edits in one section
+    # from consuming the whole allowance.
+    scene_budget = min(len(scene_changes), math.ceil(available * 2 / 3))
+    selected = boundaries + evenly_spaced(scene_changes, scene_budget)
+    selected_ids = {id(item) for item in selected}
+    remaining = [item for item in interior if id(item) not in selected_ids]
+
+    if not selected and remaining:
+        selected.append(remaining.pop(0))
+
+    # Fill unused slots with the candidates furthest in time from a selected frame.
+    # This preserves beginning-to-end context even when few scene cuts are detected.
+    while remaining and len(selected) < max_frames:
+        timestamps = [item.timestamp_s for item in selected]
+        best = max(
+            remaining,
+            key=lambda item: (
+                min(abs(item.timestamp_s - timestamp) for timestamp in timestamps),
+                -item.timestamp_s,
+            ),
+        )
+        selected.append(best)
+        remaining.remove(best)
+
+    return sorted(selected, key=lambda item: item.timestamp_s)[:max_frames]
+
+
 def deduplicate(
     candidates: list[Candidate],
     duplicate_distance: int,
     duplicate_color_distance: float,
     max_frames: int,
 ) -> list[Candidate]:
-    candidates = sorted(candidates, key=lambda item: (item.timestamp_s, item.reason))
+    reason_priority = {"first_frame": 0, "last_frame": 0, "scene_change": 1}
+    candidates = sorted(
+        candidates,
+        key=lambda item: (item.timestamp_s, reason_priority.get(item.reason, 2)),
+    )
     kept: list[Candidate] = []
     last_kept_signature: tuple[int, tuple[int, int, int]] | None = None
 
@@ -200,21 +257,7 @@ def deduplicate(
             kept.append(candidate)
             last_kept_signature = candidate_signature
 
-    if len(kept) <= max_frames:
-        return kept
-
-    boundaries = [item for item in kept if item.reason in {"first_frame", "last_frame"}]
-    others = [item for item in kept if item not in boundaries]
-    available = max(0, max_frames - len(boundaries))
-    if available and others:
-        indexes = {
-            round(index * (len(others) - 1) / max(available - 1, 1))
-            for index in range(available)
-        }
-        others = [item for index, item in enumerate(others) if index in indexes]
-    else:
-        others = []
-    return sorted(boundaries + others, key=lambda item: item.timestamp_s)[:max_frames]
+    return limit_frames(kept, max_frames)
 
 
 def prepare_output(output_dir: Path, overwrite: bool) -> None:
