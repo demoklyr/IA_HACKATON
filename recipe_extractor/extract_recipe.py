@@ -25,6 +25,7 @@ class Ingredient(BaseModel):
 
 
 class Recipe(BaseModel):
+    name: str
     steps: list[RecipeStep]
     ingredients: list[Ingredient]
 
@@ -115,7 +116,9 @@ def main() -> None:
             "the authority for ingredient names, quantities, temperatures, and timings. Use "
             "visual observations to clarify visible actions and chronological order. Do not "
             "promote a visually guessed ingredient to the ingredient list unless text or audio "
-            "supports it. Merge redundant consecutive frame observations into meaningful "
+            "supports it. Give the recipe a concise, descriptive name based only on the supplied "
+            "evidence; use an empty string when the sources do not contain a recipe. Merge "
+            "redundant consecutive frame observations into meaningful "
             "cooking steps; do not create one recipe step per frame. Do not invent missing "
             "facts. Number steps sequentially from 1. Deduplicate ingredients. Preserve stated "
             "quantities exactly, and use 'unspecified' when no quantity is stated. Return empty "
