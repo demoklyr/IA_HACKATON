@@ -3,7 +3,8 @@
 ## Discovery
 
 ```bash
-python3 -m venv .venv
+brew install python
+python3.14 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 python -m app.discovery.cli "I want a high-protein creamy chicken pasta under 30 minutes"
