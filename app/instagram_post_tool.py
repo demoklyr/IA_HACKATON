@@ -106,11 +106,12 @@ def _inspect_instagram_post(instagram_url: str) -> dict[str, Any]:
     }
 
 
-@tool("get_instagram_post_details", return_direct=True)
+@tool("get_instagram_post_details")
 def get_instagram_post_details(instagram_url: str) -> dict[str, Any]:
     """Get the description and thumbnail URL for a public Instagram post or Reel.
 
     This inspects post metadata only and does not download or analyze the video.
+    Its structured result is context for the assistant, not a user-facing answer.
 
     Args:
         instagram_url: Full HTTPS URL of a public Instagram post or Reel.

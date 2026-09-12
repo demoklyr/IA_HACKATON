@@ -1,5 +1,4 @@
 import asyncio
-import json
 
 from app.discovery.agent import ConversationMemory, create_langchain_react_agent
 
@@ -7,38 +6,38 @@ from app.discovery.agent import ConversationMemory, create_langchain_react_agent
 def _print_discovery(discovery) -> None:
     if discovery.assistant_message:
         print(f"\nAgent: {discovery.assistant_message}")
-        if (
-            not discovery.queries
-            and not discovery.results
-            and discovery.recipe is None
-            and discovery.instagram_post is None
-        ):
-            return
+        return
 
     if discovery.instagram_post is not None:
-        print("\nINSTAGRAM POST")
-        print(json.dumps(discovery.instagram_post, indent=2, ensure_ascii=False))
+        description = discovery.instagram_post.get("description")
+        if isinstance(description, str) and description.strip():
+            normalized = " ".join(description.split())
+            message = normalized[:397] + "..." if len(normalized) > 400 else normalized
+        else:
+            message = "Je n'ai pas trouvé de description pour cette publication."
+        print(f"\nAgent: {message}")
         return
 
     if discovery.recipe is not None:
-        print("\nRECIPE")
-        print(json.dumps(discovery.recipe, indent=2, ensure_ascii=False))
+        name = discovery.recipe.get("name") or "Cette recette"
+        ingredients = discovery.recipe.get("ingredients", [])
+        ingredient_names = [
+            ingredient.get("name", "")
+            for ingredient in ingredients
+            if isinstance(ingredient, dict) and ingredient.get("name")
+        ]
+        details = ", ".join(ingredient_names[:5])
+        message = f"{name} utilise principalement {details}." if details else str(name)
+        print(f"\nAgent: {message}")
         return
 
-    print("\nSEARCH QUERIES")
-    for index, query in enumerate(discovery.queries, 1):
-        print(f"{index}. {query}")
+    if not discovery.results:
+        print("\nAgent: Je n'ai pas trouvé de vidéo pertinente pour cette recherche.")
+        return
 
-    print("\nRAW CANDIDATES")
-    for video in discovery.raw_candidates:
-        print(f"- [{video.platform}] {video.caption} -- {video.url}")
-
-    print("\nTOP RESULTS")
+    print("\nAgent: Voici mes suggestions :")
     for index, video in enumerate(discovery.results, 1):
-        print(f"{index}. {video.caption}")
-        print(f"   url={video.url}")
-        print(f"   score={video.score}")
-        print(f"   reason={video.score_explanation}")
+        print(f"{index}. {video.caption or 'Une recette à découvrir'}")
 
 
 async def main() -> None:

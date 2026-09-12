@@ -191,14 +191,13 @@ def _run_instagram_recipe_workflow(instagram_url: str) -> dict[str, Any]:
         return recipe
 
 
-@tool(
-    "create_recipe_from_instagram", return_direct=True
-)
+@tool("create_recipe_from_instagram")
 def create_recipe_from_instagram(instagram_url: str) -> dict[str, Any]:
     """Create a structured cooking recipe from a public Instagram post or Reel URL.
 
     Downloads the post, transcribes its audio, analyzes representative video frames,
-    and combines that evidence with the caption. Returns `steps` and `ingredients`.
+    and combines that evidence with the caption. Its structured recipe is context
+    for the assistant, which must turn it into a natural user-facing answer.
 
     Args:
         instagram_url: Full HTTPS URL of a public Instagram post or Reel.
