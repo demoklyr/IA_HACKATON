@@ -72,7 +72,7 @@ class InstagramUrlScrapeProvider:
 
 
 class GoogleInstagramSearchProvider:
-    """Search Google for indexed Instagram Reels and keep only direct Reel URLs."""
+    """Search web indexes for Instagram Reels and keep only direct Reel URLs."""
 
     def __init__(self, timeout_seconds: float = 15.0) -> None:
         self._timeout_seconds = timeout_seconds
@@ -94,20 +94,33 @@ class GoogleInstagramSearchProvider:
         return candidates
 
     def _search_sync(self, query: str, limit: int) -> list[CandidateVideo]:
-        search_url = _google_instagram_reels_search_url(query)
-        request = Request(search_url, headers=_browser_headers())
-        with urlopen(request, timeout=self._timeout_seconds, context=_ssl_context()) as response:
-            html = response.read().decode("utf-8", errors="replace")
-        return _google_instagram_candidates_from_html(html, limit)
+        for search_url in _search_engine_urls(query):
+            request = Request(search_url, headers=_browser_headers())
+            try:
+                with urlopen(request, timeout=self._timeout_seconds, context=_ssl_context()) as response:
+                    html = response.read().decode("utf-8", errors="replace")
+            except OSError:
+                continue
+
+            candidates = _search_engine_instagram_candidates_from_html(html, limit)
+            if candidates:
+                return candidates
+        return []
 
 
 def _instagram_keyword_search_url(query: str) -> str:
     return f"https://www.instagram.com/explore/search/keyword/?q={quote_plus(query)}"
 
 
-def _google_instagram_reels_search_url(query: str) -> str:
-    google_query = f"({query}) (site:instagram.com/reel OR site:instagram.com/reels)"
-    return f"https://www.google.com/search?q={quote_plus(google_query)}&num=10&hl=fr"
+def _search_engine_urls(query: str) -> list[str]:
+    encoded_query = quote_plus(_instagram_reels_query(query))
+    return [
+        f"https://www.google.com/search?q={encoded_query}&num=10&hl=fr",
+    ]
+
+
+def _instagram_reels_query(query: str) -> str:
+    return f"{query} site:instagram.com/reel OR site:instagram.com/reels"
 
 
 def _browser_headers() -> dict[str, str]:
@@ -152,14 +165,15 @@ def _instagram_reel_candidates_from_html(html: str, limit: int) -> list[Candidat
     return [CandidateVideo(platform="instagram", url=url) for url in urls]
 
 
-def _google_instagram_candidates_from_html(html: str, limit: int) -> list[CandidateVideo]:
+def _search_engine_instagram_candidates_from_html(html: str, limit: int) -> list[CandidateVideo]:
     urls: list[str] = []
     seen: set[str] = set()
     normalized_html = html.replace("\\/", "/")
-    raw_urls = re.findall(r"https?://[^\"'<> ]+", normalized_html)
+    normalized_html = normalized_html.replace("&amp;", "&")
+    raw_urls = re.findall(r"(?:https?://|/url\?q=|/l/\?kh=-1&uddg=)[^\"'<> ]+", normalized_html)
 
     for raw_url in raw_urls:
-        candidate_url = _extract_google_result_url(unquote(raw_url))
+        candidate_url = _extract_search_result_url(unquote(raw_url))
         platform = _platform_for_video_url(candidate_url)
         if platform != "instagram" or candidate_url in seen:
             continue
@@ -170,10 +184,14 @@ def _google_instagram_candidates_from_html(html: str, limit: int) -> list[Candid
     return [CandidateVideo(platform="instagram", url=url) for url in urls]
 
 
-def _extract_google_result_url(url: str) -> str:
+def _extract_search_result_url(url: str) -> str:
     parts = urlsplit(url)
-    if parts.netloc.endswith("google.com") and parts.path == "/url":
+    if parts.path == "/url":
         result_url = parse_qs(parts.query).get("q", [""])[0]
+        if result_url:
+            return _normalize_instagram_reel_url(result_url)
+    if parts.path == "/l/":
+        result_url = parse_qs(parts.query).get("uddg", [""])[0]
         if result_url:
             return _normalize_instagram_reel_url(result_url)
     return _normalize_instagram_reel_url(url)
