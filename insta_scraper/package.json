@@ -1,0 +1,12 @@
+{
+  "name": "instagram-dom-inspector",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "inspect": "node inspect-instagram.mjs",
+    "download": "node download-instagram.mjs"
+  },
+  "dependencies": {
+    "playwright": "^1.55.0"
+  }
+}

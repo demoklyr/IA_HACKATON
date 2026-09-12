@@ -27,17 +27,27 @@ def parse_intent(user_query: str) -> SearchIntent:
 
 def generate_queries(user_query: str, intent: SearchIntent | None = None) -> list[str]:
     intent = intent or parse_intent(user_query)
-    base = " ".join(intent.preferred_ingredients) or user_query.strip()
-    qualifiers = []
+    constraints: list[str] = []
+    if intent.cuisine:
+        constraints.append(intent.cuisine)
     if intent.high_protein:
-        qualifiers.append("high protein")
+        constraints.append("high protein")
     if intent.low_calorie:
-        qualifiers.append("healthy")
+        constraints.append("low calorie")
     if intent.vegetarian:
-        qualifiers.append("vegetarian")
-    suffix = " ".join(qualifiers)
-    queries = [f"{suffix} {base} recipe".strip(), f"healthy {base} recipe".strip(), f"easy {suffix} {base}".strip()]
+        constraints.append("vegetarian")
+    constraints.extend(intent.preferred_ingredients)
+    if intent.difficulty:
+        constraints.append(intent.difficulty)
     if intent.max_time_minutes:
-        queries.append(f"{intent.max_time_minutes} minute {base} recipe")
-    queries.append(f"creamy {base} recipe".strip())
+        constraints.append(f"under {intent.max_time_minutes} minutes")
+    constraints.extend(f"without {ingredient}" for ingredient in intent.excluded_ingredients)
+
+    raw_query = user_query.strip()
+    structured_query = " ".join(constraints) or raw_query
+    queries = [
+        f"{raw_query} Instagram Reel recette",
+        f"{structured_query} recipe video",
+        f"{structured_query} easy recipe Instagram Reel",
+    ]
     return list(dict.fromkeys(queries))[:5]
