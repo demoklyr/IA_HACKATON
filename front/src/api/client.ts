@@ -6,6 +6,9 @@ import type {
   ApiErrorResponse,
   StartFromAudioResponse,
   CVSessionInitResponse,
+  ChatResponse,
+  ChatSearchResult,
+  InstagramPostPreview,
 } from "../types";
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
@@ -105,6 +108,41 @@ export function normalizeRecipe(raw: RawRecipeResponse, sourceUrl: string): Reci
 }
 
 export const api = {
+  async sendChat(
+    message: string,
+    conversationId: string,
+  ): Promise<ChatResponse> {
+    const res = await fetch(`${BASE_URL}/api/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message, conversation_id: conversationId }),
+    });
+    if (!res.ok) throw new Error(await readError(res));
+
+    const raw = (await res.json()) as {
+      type: "message" | "recipe";
+      message: string;
+      results?: ChatSearchResult[];
+      instagram_post?: InstagramPostPreview | null;
+      recipe?: RawRecipeResponse;
+      source_url?: string | null;
+    };
+    if (raw.type === "recipe") {
+      if (!raw.recipe) throw new Error("L'agent n'a pas renvoyé de recette exploitable.");
+      return {
+        type: "recipe",
+        message: raw.message,
+        recipe: normalizeRecipe(raw.recipe, raw.source_url ?? ""),
+      };
+    }
+    return {
+      type: "message",
+      message: raw.message,
+      results: raw.results ?? [],
+      instagram_post: raw.instagram_post,
+    };
+  },
+
   /**
    * Calls create_recipe_from_instagram end-to-end. This is a BLOCKING call —
    * the promise only resolves once the full pipeline finishes (can take

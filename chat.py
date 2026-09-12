@@ -1,29 +1,43 @@
 import asyncio
-import json
 
 from app.discovery.agent import ConversationMemory, create_langchain_react_agent
 
 
 def _print_discovery(discovery) -> None:
-    if discovery.recipe is not None:
-        print("\nRECIPE")
-        print(json.dumps(discovery.recipe, indent=2, ensure_ascii=False))
+    if discovery.assistant_message:
+        print(f"\nAgent: {discovery.assistant_message}")
         return
 
-    print("\nSEARCH QUERIES")
-    for index, query in enumerate(discovery.queries, 1):
-        print(f"{index}. {query}")
+    if discovery.instagram_post is not None:
+        description = discovery.instagram_post.get("description")
+        if isinstance(description, str) and description.strip():
+            normalized = " ".join(description.split())
+            message = normalized[:397] + "..." if len(normalized) > 400 else normalized
+        else:
+            message = "Je n'ai pas trouvé de description pour cette publication."
+        print(f"\nAgent: {message}")
+        return
 
-    print("\nRAW CANDIDATES")
-    for video in discovery.raw_candidates:
-        print(f"- [{video.platform}] {video.caption} -- {video.url}")
+    if discovery.recipe is not None:
+        name = discovery.recipe.get("name") or "Cette recette"
+        ingredients = discovery.recipe.get("ingredients", [])
+        ingredient_names = [
+            ingredient.get("name", "")
+            for ingredient in ingredients
+            if isinstance(ingredient, dict) and ingredient.get("name")
+        ]
+        details = ", ".join(ingredient_names[:5])
+        message = f"{name} utilise principalement {details}." if details else str(name)
+        print(f"\nAgent: {message}")
+        return
 
-    print("\nTOP RESULTS")
+    if not discovery.results:
+        print("\nAgent: Je n'ai pas trouvé de vidéo pertinente pour cette recherche.")
+        return
+
+    print("\nAgent: Voici mes suggestions :")
     for index, video in enumerate(discovery.results, 1):
-        print(f"{index}. {video.caption}")
-        print(f"   url={video.url}")
-        print(f"   score={video.score}")
-        print(f"   reason={video.score_explanation}")
+        print(f"{index}. {video.caption or 'Une recette à découvrir'}")
 
 
 async def main() -> None:

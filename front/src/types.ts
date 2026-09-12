@@ -80,6 +80,34 @@ export interface ApiErrorResponse {
   detail: string;
 }
 
+export interface ChatSearchResult {
+  platform: "instagram" | "tiktok" | "web";
+  url: string;
+  caption?: string | null;
+  creator?: string | null;
+  score?: number;
+  score_explanation?: string | null;
+}
+
+export interface InstagramPostPreview {
+  source_url: string;
+  description?: string | null;
+  thumbnail_url?: string | null;
+}
+
+export type ChatResponse =
+  | {
+      type: "message";
+      message: string;
+      results: ChatSearchResult[];
+      instagram_post?: InstagramPostPreview | null;
+    }
+  | {
+      type: "recipe";
+      message: string;
+      recipe: Recipe;
+    };
+
 // multipart/form-data: { audio: Blob }
 // NOTE: not covered by the shared backend file — this endpoint's contract
 // is still assumed and needs confirming separately from create_recipe_from_instagram.
