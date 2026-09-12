@@ -163,15 +163,36 @@ class LangChainReActDiscoveryAgent(RecipeDiscoveryAgent):
 
         queries = self._state.get("queries", [])
         raw_candidates = self._state.get("candidates", [])
-        results = self._state.get("results", [])
-        if not queries:
-            raise RuntimeError("LangChain ReAct agent did not call search_videos")
-        if not self._state.get("ranked"):
-            raise RuntimeError("LangChain ReAct agent did not call rank_candidates")
+        completed_search = isinstance(queries, list) and bool(queries)
+        if not completed_search:
+            raw_candidates = await self.tools.search_videos(query, limit=10)
+            queries = [query]
+            self._state["queries"] = queries
+            self._state["candidates"] = raw_candidates
+            self._record(
+                "The model skipped search, so I should complete the required step.",
+                "search_videos",
+                f"found {len(raw_candidates)} candidates (deterministic fallback)",
+            )
+
+        if not isinstance(raw_candidates, list):
+            raw_candidates = []
+
+        if not completed_search or not self._state.get("ranked"):
+            results = self.tools.rank(raw_candidates, query)[:max(limit, 0)]
+            self._state["results"] = results
+            self._state["ranked"] = True
+            self._record(
+                "The model skipped ranking, so I should complete the required step.",
+                "rank_candidates",
+                f"selected {len(results)} top results (deterministic fallback)",
+            )
+        else:
+            results = self._state.get("results", [])
 
         return DiscoveryRun(
             queries=queries if isinstance(queries, list) else [],
-            raw_candidates=raw_candidates if isinstance(raw_candidates, list) else [],
+            raw_candidates=raw_candidates,
             results=results if isinstance(results, list) else [],
         )
 

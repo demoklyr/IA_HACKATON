@@ -91,7 +91,9 @@ class SerperSearchProvider:
         self._search_tool = search_tool or web_search
 
     async def search(self, query: str, limit: int = 10) -> list[CandidateVideo]:
-        response = await self._search_tool.ainvoke({"query": query, "limit": limit})
+        response = await self._search_tool.ainvoke(
+            {"query": _social_search_query(query), "limit": limit}
+        )
         return _candidates_from_serper_response(response, limit)
 
     async def search_many(
@@ -160,3 +162,14 @@ def _social_video_platform(url: str) -> str | None:
     if (host == "tiktok.com" or host.endswith(".tiktok.com")) and "/video/" in path:
         return "tiktok"
     return None
+
+
+def _social_search_query(query: str) -> str:
+    normalized_query = query.strip()
+    lowered = normalized_query.lower()
+    if "site:instagram.com" in lowered or "site:tiktok.com" in lowered:
+        return normalized_query
+    return (
+        f"{normalized_query} recipe video "
+        "(site:instagram.com/reel OR site:instagram.com/reels OR site:tiktok.com/@)"
+    )
