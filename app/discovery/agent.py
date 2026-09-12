@@ -299,6 +299,10 @@ class LangChainReActDiscoveryAgent(RecipeDiscoveryAgent):
                 results=results if isinstance(results, list) else [],
                 recipe=recipe,
                 assistant_message=assistant_message,
+                recipe_source_url=_extract_tool_instagram_url(
+                    agent_result,
+                    "create_recipe_from_instagram",
+                ),
             )
             self.memory.remember(
                 query,
@@ -533,6 +537,40 @@ def _extract_instagram_post(agent_result: Any) -> dict[str, Any] | None:
             "thumbnail_url",
         } <= post.keys():
             return post
+    return None
+
+
+def _extract_tool_instagram_url(agent_result: Any, tool_name: str) -> str | None:
+    """Read the Instagram URL passed to a named tool from its AI tool call."""
+    if not isinstance(agent_result, dict):
+        return None
+    messages = agent_result.get("messages")
+    if not isinstance(messages, list):
+        return None
+
+    for message in reversed(messages):
+        tool_calls = (
+            message.get("tool_calls", [])
+            if isinstance(message, dict)
+            else getattr(message, "tool_calls", [])
+        )
+        if not isinstance(tool_calls, list):
+            continue
+        for call in reversed(tool_calls):
+            if isinstance(call, dict):
+                name = call.get("name")
+                args = call.get("args", {})
+            else:
+                name = getattr(call, "name", None)
+                args = getattr(call, "args", {})
+            if name != tool_name:
+                continue
+            if isinstance(args, str):
+                args = _loads_loose(args)
+            if isinstance(args, dict):
+                url = args.get("instagram_url")
+                if isinstance(url, str) and url.strip():
+                    return url.strip()
     return None
 
 

@@ -1,6 +1,5 @@
 import { useCallback, useState } from "react";
-import { InputBar } from "./components/InputBar";
-import { ProcessingOverlay } from "./components/ProcessingOverlay";
+import { ChatPanel, type ChatMessage } from "./components/ChatPanel";
 import { RecipeSidebar } from "./components/RecipeSidebar";
 import { CameraPanel } from "./components/CameraPanel";
 import { api } from "./api/client";
@@ -8,71 +7,65 @@ import { useCameraSession } from "./hooks/useCameraSession";
 import type { Recipe } from "./types";
 import "./styles/app.css";
 
-type AppPhase = "input" | "processing" | "ready";
+type AppPhase = "chat" | "ready";
+
+const initialMessage: ChatMessage = {
+  id: "welcome",
+  role: "assistant",
+  text: "Bonjour ! Qu'est-ce qui te ferait plaisir ? Je peux chercher une recette ou transformer un Reel en recette guidée.",
+};
 
 export default function App() {
-  const [phase, setPhase] = useState<AppPhase>("input");
+  const [phase, setPhase] = useState<AppPhase>("chat");
   const [recipe, setRecipe] = useState<Recipe | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [messages, setMessages] = useState<ChatMessage[]>([initialMessage]);
+  const [sending, setSending] = useState(false);
+  const [conversationId] = useState(() =>
+    globalThis.crypto?.randomUUID?.() ?? `conversation-${Date.now()}`,
+  );
 
   const camera = useCameraSession();
 
-  // create_recipe_from_instagram is a single blocking call — no job_id, no
-  // progress events. We just await it while ProcessingOverlay shows a
-  // cosmetic, time-based progress animation.
-  const handleSubmitUrl = useCallback(async (url: string) => {
-    setPhase("processing");
+  const handleSend = useCallback(async (message: string) => {
+    setMessages((current) => [
+      ...current,
+      { id: `user-${Date.now()}`, role: "user", text: message },
+    ]);
+    setSending(true);
+    setError(null);
     try {
-      const recipe = await api.createRecipeFromUrl(url);
-      setRecipe(recipe);
-      setPhase("ready");
+      const response = await api.sendChat(message, conversationId);
+      if (response.type === "recipe") {
+        setRecipe(response.recipe);
+        setPhase("ready");
+        return;
+      }
+      setMessages((current) => [
+        ...current,
+        {
+          id: `assistant-${Date.now()}`,
+          role: "assistant",
+          text: response.message,
+          results: response.results,
+          instagramPost: response.instagram_post,
+        },
+      ]);
     } catch (e) {
       setError((e as Error).message);
+    } finally {
+      setSending(false);
     }
-  }, []);
-
-  const handleSubmitAudio = useCallback(async (_blob: Blob) => {
-    // Not covered by the shared backend file yet — wire this up once the
-    // audio-to-recipe endpoint's contract is confirmed.
-    setError("L'envoi vocal n'est pas encore branché côté backend.");
-  }, []);
+  }, [conversationId]);
 
   const handleActivateCamera = useCallback(() => {
     if (recipe) camera.start(recipe.id);
   }, [camera, recipe]);
 
-  if (error) {
+  if (phase === "chat") {
     return (
-      <div className="app app--error">
-        <p>{error}</p>
-        <button
-          className="btn btn--primary"
-          onClick={() => {
-            setError(null);
-            setPhase("input");
-          }}
-        >
-          Réessayer
-        </button>
-      </div>
-    );
-  }
-
-  if (phase === "input") {
-    return (
-      <div className="app app--centered">
-        <h1 className="app__hero-title">
-          Colle un reel, <span className="app__hero-accent">on cuisine.</span>
-        </h1>
-        <InputBar onSubmitUrl={handleSubmitUrl} onSubmitAudio={handleSubmitAudio} />
-      </div>
-    );
-  }
-
-  if (phase === "processing") {
-    return (
-      <div className="app app--centered">
-        <ProcessingOverlay isRunning={phase === "processing"} />
+      <div className="app app--chat">
+        <ChatPanel messages={messages} sending={sending} error={error} onSend={handleSend} />
       </div>
     );
   }
