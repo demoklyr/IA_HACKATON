@@ -4,7 +4,7 @@ import os
 
 from dotenv import load_dotenv
 
-from app.discovery.agent import create_discovery_agent
+from app.discovery.agent import create_discovery_agent, create_langchain_react_agent
 
 
 def _key_state(name: str) -> str:
@@ -34,6 +34,14 @@ def _print_discovery(user_query: str, discovery) -> None:
         )
 
 
+def _print_react_trace(agent) -> None:
+    print("REACT TRACE")
+    for index, step in enumerate(agent.trace, 1):
+        print(f"{index}. Thought: {step.thought}")
+        print(f"   Action: {step.action}")
+        print(f"   Observation: {step.observation}")
+
+
 async def run() -> None:
     parser = argparse.ArgumentParser(description="Run the recipe video discovery agent")
     parser.add_argument("user_query", nargs="+", help="Natural-language recipe video request")
@@ -48,6 +56,11 @@ async def run() -> None:
         action="store_true",
         help="Disable OpenAI for this run, forcing the local rule-based intent parser.",
     )
+    parser.add_argument(
+        "--langchain-react",
+        action="store_true",
+        help="Run the minimal LangChain ReAct agent instead of the deterministic agent.",
+    )
     args = parser.parse_args()
 
     load_dotenv()
@@ -57,10 +70,11 @@ async def run() -> None:
         os.environ["DISCOVERY_SEARCH_PROVIDER"] = args.provider
 
     user_query = " ".join(args.user_query).strip()
-    agent = create_discovery_agent()
+    agent = create_langchain_react_agent() if args.langchain_react else create_discovery_agent()
     runtime = agent.runtime
 
     print("RUNTIME")
+    print(f"agent={type(agent).__name__}")
     print(f"intent_parser={runtime.intent_parser}")
     print(f"search_provider={runtime.search_provider}")
     print(f"discovery_search_provider={os.getenv('DISCOVERY_SEARCH_PROVIDER') or 'auto'}")
@@ -68,6 +82,8 @@ async def run() -> None:
     print()
 
     discovery = await agent.run(user_query, limit=args.limit)
+    _print_react_trace(agent)
+    print()
     _print_discovery(user_query, discovery)
 
 
