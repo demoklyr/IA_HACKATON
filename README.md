@@ -43,3 +43,14 @@ SERPER_API_KEY=your-key
 
 The tool accepts a `query` and an optional `limit` (1–100), and returns the
 JSON response from Serper without scraping result pages.
+
+The discovery agents use this tool automatically when `SERPER_API_KEY` is set.
+You can also select it explicitly:
+
+```dotenv
+DISCOVERY_SEARCH_PROVIDER=serper
+SERPER_API_KEY=your-key
+```
+
+Generated query variants are searched concurrently. Only direct Instagram
+Reel and TikTok video URLs continue into deduplication and ranking.

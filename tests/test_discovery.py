@@ -1,13 +1,14 @@
 import pytest
+from types import SimpleNamespace
 
 from app.discovery.query_planner import generate_queries, parse_intent
 from app.discovery.ranker import deduplicate_candidates, normalize_url, rank_candidates
 
 from app.discovery.intent_agent import RuleBasedIntentParser
 from app.discovery.agent import LangChainReActDiscoveryAgent, _coerce_queries, create_discovery_agent
-from app.discovery.service import run_discovery
+from app.discovery.service import default_search_provider, run_discovery
 from app.discovery.models import CandidateVideo
-from app.discovery.social_search import MockSearchProvider
+from app.discovery.social_search import MockSearchProvider, SerperSearchProvider
 from app.discovery.tools import DiscoveryTools
 
 
@@ -96,3 +97,53 @@ def test_langchain_react_agent_requires_openai_key(monkeypatch):
 def test_langchain_react_query_coercion_handles_bad_json():
     assert _coerce_queries('["query one", "query two"]') == ["query one", "query two"]
     assert _coerce_queries('["query one\nquery two"]') == []
+
+
+@pytest.mark.asyncio
+async def test_serper_provider_uses_web_search_tool():
+    calls = []
+
+    async def fake_ainvoke(arguments):
+        calls.append(arguments)
+        return {
+            "organic": [
+                {
+                    "title": "Fast pasta recipe",
+                    "link": "https://www.instagram.com/reel/PASTA123/",
+                },
+                {
+                    "title": "Not a video",
+                    "link": "https://example.com/pasta",
+                },
+            ],
+            "videos": [
+                {
+                    "title": "Quick pasta",
+                    "link": "https://www.tiktok.com/@chef/video/123456",
+                    "channel": "Chef",
+                }
+            ],
+        }
+
+    provider = SerperSearchProvider(search_tool=SimpleNamespace(ainvoke=fake_ainvoke))
+
+    candidates = await provider.search("quick pasta recipe videos", limit=5)
+
+    assert calls == [{"query": "quick pasta recipe videos", "limit": 5}]
+    assert [candidate.platform for candidate in candidates] == ["instagram", "tiktok"]
+    assert candidates[0].caption == "Fast pasta recipe"
+    assert candidates[1].creator == "Chef"
+
+
+def test_default_provider_uses_serper_when_key_is_configured(monkeypatch):
+    monkeypatch.setenv("DISCOVERY_SEARCH_PROVIDER", "auto")
+    monkeypatch.setenv("SERPER_API_KEY", "test-key")
+
+    assert isinstance(default_search_provider(), SerperSearchProvider)
+
+
+def test_default_provider_can_force_mock(monkeypatch):
+    monkeypatch.setenv("DISCOVERY_SEARCH_PROVIDER", "mock")
+    monkeypatch.setenv("SERPER_API_KEY", "test-key")
+
+    assert isinstance(default_search_provider(), MockSearchProvider)

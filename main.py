@@ -48,7 +48,7 @@ async def run() -> None:
     parser.add_argument("--limit", type=int, default=3, help="Number of ranked results to show")
     parser.add_argument(
         "--provider",
-        choices=["mock", "google", "instagram", "web"],
+        choices=["auto", "mock", "serper"],
         help="Search provider override. Defaults to DISCOVERY_SEARCH_PROVIDER or app defaults.",
     )
     parser.add_argument(
@@ -79,6 +79,7 @@ async def run() -> None:
     print(f"search_provider={runtime.search_provider}")
     print(f"discovery_search_provider={os.getenv('DISCOVERY_SEARCH_PROVIDER') or 'auto'}")
     print(f"openai_api_key={_key_state('OPENAI_API_KEY')}")
+    print(f"serper_api_key={_key_state('SERPER_API_KEY')}")
     print()
 
     discovery = await agent.run(user_query, limit=args.limit)

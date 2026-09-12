@@ -1,4 +1,8 @@
-from typing import Protocol
+import asyncio
+from typing import Any, Protocol
+from urllib.parse import urlsplit
+
+from app.web_search_tool import web_search
 
 from .models import CandidateVideo
 
@@ -78,3 +82,81 @@ class MockSearchProvider:
             reverse=True,
         )
         return [item.model_copy(deep=True) for item in ranked[:limit]]
+
+
+class SerperSearchProvider:
+    """Find indexed Instagram and TikTok videos with the Serper search tool."""
+
+    def __init__(self, search_tool: Any | None = None) -> None:
+        self._search_tool = search_tool or web_search
+
+    async def search(self, query: str, limit: int = 10) -> list[CandidateVideo]:
+        response = await self._search_tool.ainvoke({"query": query, "limit": limit})
+        return _candidates_from_serper_response(response, limit)
+
+    async def search_many(
+        self,
+        queries: list[str],
+        limit: int = 10,
+    ) -> list[CandidateVideo]:
+        batches = await asyncio.gather(
+            *(self.search(query, limit=limit) for query in queries)
+        )
+        candidates: list[CandidateVideo] = []
+        seen: set[str] = set()
+        for batch in batches:
+            for candidate in batch:
+                if candidate.url in seen:
+                    continue
+                seen.add(candidate.url)
+                candidates.append(candidate)
+                if len(candidates) >= limit:
+                    return candidates
+        return candidates
+
+
+def _candidates_from_serper_response(
+    response: dict[str, Any],
+    limit: int,
+) -> list[CandidateVideo]:
+    candidates: list[CandidateVideo] = []
+    seen: set[str] = set()
+
+    for group_name in ("organic", "videos"):
+        results = response.get(group_name, [])
+        if not isinstance(results, list):
+            continue
+        for result in results:
+            if not isinstance(result, dict):
+                continue
+            url = result.get("link")
+            if not isinstance(url, str) or url in seen:
+                continue
+            platform = _social_video_platform(url)
+            if platform is None:
+                continue
+            seen.add(url)
+            candidates.append(
+                CandidateVideo(
+                    platform=platform,
+                    url=url,
+                    caption=result.get("title") or result.get("snippet"),
+                    creator=result.get("channel") or result.get("source"),
+                )
+            )
+            if len(candidates) >= limit:
+                return candidates
+    return candidates
+
+
+def _social_video_platform(url: str) -> str | None:
+    parts = urlsplit(url)
+    host = (parts.hostname or "").lower()
+    path = parts.path.lower()
+    if (host == "instagram.com" or host.endswith(".instagram.com")) and (
+        "/reel/" in path or "/reels/" in path
+    ):
+        return "instagram"
+    if (host == "tiktok.com" or host.endswith(".tiktok.com")) and "/video/" in path:
+        return "tiktok"
+    return None
