@@ -85,13 +85,18 @@ class MockSearchProvider:
 
 
 class SerperSearchProvider:
-    """Find indexed Instagram and TikTok videos with the Serper search tool."""
+    """Find indexed Instagram Reels with the Serper search tool."""
 
     def __init__(self, search_tool: Any | None = None) -> None:
         self._search_tool = search_tool or web_search
 
     async def search(self, query: str, limit: int = 10) -> list[CandidateVideo]:
-        response = await self._search_tool.ainvoke({"query": query, "limit": limit})
+        serper_query = query.strip()
+        if "site:instagram.com" not in serper_query.lower():
+            serper_query = f"site:instagram.com/reel {serper_query}"
+        response = await self._search_tool.ainvoke(
+            {"query": serper_query, "limit": limit}
+        )
         return _candidates_from_serper_response(response, limit)
 
     async def search_many(
@@ -157,6 +162,4 @@ def _social_video_platform(url: str) -> str | None:
         "/reel/" in path or "/reels/" in path
     ):
         return "instagram"
-    if (host == "tiktok.com" or host.endswith(".tiktok.com")) and "/video/" in path:
-        return "tiktok"
     return None

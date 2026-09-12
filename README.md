@@ -14,7 +14,7 @@ The discovery boundary returns ranked `CandidateVideo` objects. Search is isolat
 behind `SocialSearchProvider`, so a real SERP provider can be plugged in without
 changing the agent pipeline.
 
-For now, the only bundled provider is deterministic offline mock data:
+For offline development, use the deterministic mock provider:
 
 ```dotenv
 DISCOVERY_SEARCH_PROVIDER=mock
@@ -27,7 +27,8 @@ To run the LangChain ReAct agent, copy `.env.example` to `.env` and set:
 ```dotenv
 OPENAI_API_KEY=your-key
 DISCOVERY_MODEL=openai:gpt-4.1-mini
-DISCOVERY_SEARCH_PROVIDER=mock
+DISCOVERY_SEARCH_PROVIDER=serper
+SERPER_API_KEY=your-key
 ```
 
 Then run:
@@ -58,5 +59,5 @@ DISCOVERY_SEARCH_PROVIDER=serper
 SERPER_API_KEY=your-key
 ```
 
-Generated query variants are searched concurrently. Only direct Instagram
-Reel and TikTok video URLs continue into deduplication and ranking.
+The agent's query is sent directly to Serper with an Instagram site filter.
+Only direct Instagram Reel URLs continue into ranking.

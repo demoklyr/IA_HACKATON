@@ -133,8 +133,8 @@ class LangChainReActDiscoveryAgent(RecipeDiscoveryAgent):
             model=model,
             tools=[search_videos, rank_candidates],
             system_prompt=(
-                "You are a minimal ReAct recipe-video discovery agent. "
-                "Turn the user's request into a precise search query, call search_videos, "
+                "You are a minimal ReAct Instagram recipe-video discovery agent. "
+                "Turn the user's request into a precise Instagram Reel search query, call search_videos, "
                 "then call rank_candidates. You may search again with a better query when useful. "
                 "Never invent URLs. After ranking, give a concise final answer."
             ),
