@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel
 
@@ -19,3 +19,4 @@ class DiscoveryRun(BaseModel):
     queries: list[str]
     raw_candidates: list[CandidateVideo]
     results: list[CandidateVideo]
+    recipe: dict[str, Any] | None = None

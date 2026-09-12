@@ -174,6 +174,8 @@ class LangChainReActDiscoveryAgent(RecipeDiscoveryAgent):
         from langchain.agents import create_agent
         from langchain.tools import tool
 
+        from app.instagram_recipe_tool import create_recipe_from_instagram
+
         self._state: dict[str, object] = {}
 
         @tool
@@ -223,12 +225,15 @@ class LangChainReActDiscoveryAgent(RecipeDiscoveryAgent):
 
         self._agent = create_agent(
             model=model,
-            tools=[search_videos, rank_candidates],
+            tools=[search_videos, rank_candidates, create_recipe_from_instagram],
             system_prompt=(
                 "You are a minimal ReAct Instagram recipe-video discovery agent. "
                 "Use the conversation history to resolve follow-up requests and refinements. "
                 "Turn the user's request into a precise Instagram Reel search query, call search_videos, "
                 "then call rank_candidates. You may search again with a better query when useful. "
+                "When the user explicitly asks to create or extract a recipe from a public "
+                "Instagram URL, or from a previously selected Instagram result, call "
+                "create_recipe_from_instagram with that URL. "
                 "Never invent URLs. After ranking, give a concise final answer."
             ),
         )
@@ -257,7 +262,32 @@ class LangChainReActDiscoveryAgent(RecipeDiscoveryAgent):
                 ),
             }
         )
-        await self._agent.ainvoke({"messages": messages})
+        agent_result = await self._agent.ainvoke({"messages": messages})
+
+        recipe = _extract_instagram_recipe(agent_result)
+        if recipe is not None:
+            self._record(
+                "The user asked to turn an Instagram video into a recipe.",
+                "create_recipe_from_instagram",
+                "created a structured recipe",
+            )
+            queries = self._state.get("queries", [])
+            raw_candidates = self._state.get("candidates", [])
+            results = self._state.get("results", [])
+            discovery = DiscoveryRun(
+                queries=queries if isinstance(queries, list) else [],
+                raw_candidates=(
+                    raw_candidates if isinstance(raw_candidates, list) else []
+                ),
+                results=results if isinstance(results, list) else [],
+                recipe=recipe,
+            )
+            self.memory.remember(
+                query,
+                _summarize_discovery(discovery),
+                normalized_conversation_id,
+            )
+            return discovery
 
         queries = self._state.get("queries", [])
         raw_candidates = self._state.get("candidates", [])
@@ -330,6 +360,14 @@ def _normalize_conversation_id(conversation_id: str) -> str:
 
 def _summarize_discovery(discovery: DiscoveryRun) -> str:
     """Keep useful context without retaining bulky tool-call transcripts."""
+    if discovery.recipe is not None:
+        ingredient_count = len(discovery.recipe.get("ingredients", []))
+        step_count = len(discovery.recipe.get("steps", []))
+        return (
+            "I created a structured recipe from Instagram with "
+            f"{ingredient_count} ingredients and {step_count} steps."
+        )
+
     queries = ", ".join(discovery.queries) or "none"
     if not discovery.results:
         return f"I searched with: {queries}. No recipe videos were selected."
@@ -365,3 +403,27 @@ def _coerce_candidates(value: Any) -> list[CandidateVideo]:
         elif isinstance(item, dict):
             candidates.append(CandidateVideo.model_validate(item))
     return candidates
+
+
+def _extract_instagram_recipe(agent_result: Any) -> dict[str, Any] | None:
+    """Read the direct Instagram tool result from a LangChain agent response."""
+    if not isinstance(agent_result, dict):
+        return None
+    messages = agent_result.get("messages")
+    if not isinstance(messages, list):
+        return None
+
+    for message in reversed(messages):
+        if isinstance(message, dict):
+            name = message.get("name")
+            content = message.get("content")
+        else:
+            name = getattr(message, "name", None)
+            content = getattr(message, "content", None)
+
+        if name != "create_recipe_from_instagram":
+            continue
+        recipe = _loads_loose(content)
+        if isinstance(recipe, dict) and {"steps", "ingredients"} <= recipe.keys():
+            return recipe
+    return None
