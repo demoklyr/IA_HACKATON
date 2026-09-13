@@ -85,6 +85,8 @@ export default function App() {
           isAgentSpeaking={camera.isAgentSpeaking}
           lastInstruction={camera.lastInstruction}
           lastWarning={camera.lastWarning}
+          detectedItems={camera.detectedItems}
+          requiredObjects={camera.requiredObjects}
           onActivate={handleActivateCamera}
           onPause={camera.pause}
           onResume={camera.resume}

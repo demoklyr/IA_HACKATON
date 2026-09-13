@@ -12,6 +12,8 @@ interface UseCameraSessionResult {
   isAgentSpeaking: boolean;
   lastInstruction: string | null;
   lastWarning: string | null;
+  detectedItems: string | null;
+  requiredObjects: string[] | null;
   start: (recipeId: string) => Promise<void>;
   pause: () => void;
   resume: () => void;
@@ -32,6 +34,8 @@ export function useCameraSession(): UseCameraSessionResult {
   const [isAgentSpeaking, setIsAgentSpeaking] = useState(false);
   const [lastInstruction, setLastInstruction] = useState<string | null>(null);
   const [lastWarning, setLastWarning] = useState<string | null>(null);
+  const [detectedItems, setDetectedItems] = useState<string | null>(null);
+  const [requiredObjects, setRequiredObjects] = useState<string[] | null>(null);
 
   const sendFrame = useCallback(() => {
     const video = videoRef.current;
@@ -57,6 +61,7 @@ export function useCameraSession(): UseCameraSessionResult {
       case "instruction":
         setCurrentStepIndex(msg.step_index);
         setLastInstruction(msg.text);
+        setRequiredObjects(msg.required_objects || null);
         break;
       case "speaking_start":
         setIsAgentSpeaking(true);
@@ -76,18 +81,29 @@ export function useCameraSession(): UseCameraSessionResult {
       case "error":
         console.error("CV session error:", msg.text);
         break;
+      case "detected_items":
+        setDetectedItems(msg.text);
+        break;
     }
   }, []);
 
   const start = useCallback(
     async (recipeId: string) => {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-      streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        await videoRef.current.play();
+      setSessionState("active"); // On passe en active de suite pour forcer l'affichage de <video>
+      
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        streamRef.current = stream;
+        
+        // La balise <video> a eu largement le temps d'apparaître pendant l'attente de getUserMedia
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          videoRef.current.play().catch(console.error);
+        }
+      } catch (err) {
+        console.error("Camera access error:", err);
       }
-
+      
       const { session_id, ws_url } = await api.initCameraSession(recipeId);
       sessionIdRef.current = session_id;
 
@@ -141,6 +157,8 @@ export function useCameraSession(): UseCameraSessionResult {
     isAgentSpeaking,
     lastInstruction,
     lastWarning,
+    detectedItems,
+    requiredObjects,
     start,
     pause,
     resume,

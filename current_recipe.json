@@ -1,0 +1,126 @@
+{
+  "name": "Pasta salad with tuna, cherry tomatoes, corn, and yogurt-lemon dressing",
+  "steps": [
+    {
+      "stepNumber": 1,
+      "description": "Cook fusilli pasta in boiling water until al dente.",
+      "required_objects": [
+        "fusilli pasta",
+        "pot",
+        "water",
+        "stove"
+      ]
+    },
+    {
+      "stepNumber": 2,
+      "description": "Prepare the yogurt-based dressing by whisking Greek yogurt with honey, olive oil, salt and pepper, garlic powder, oregano, paprika, chili powder, and the juice of one lemon.",
+      "required_objects": [
+        "Greek yogurt",
+        "honey",
+        "olive oil",
+        "salt and pepper",
+        "garlic powder",
+        "oregano",
+        "paprika",
+        "chili powder",
+        "lemon",
+        "bowl",
+        "whisk"
+      ]
+    },
+    {
+      "stepNumber": 3,
+      "description": "In a large bowl, combine the cooked pasta with cherry tomatoes, red onion, corn, tuna, and mozzarella balls.",
+      "required_objects": [
+        "fusilli pasta",
+        "cherry tomatoes",
+        "red onion",
+        "corn",
+        "tuna",
+        "mozzarella balls",
+        "large bowl"
+      ]
+    },
+    {
+      "stepNumber": 4,
+      "description": "Pour the dressing over the salad and toss to coat evenly.",
+      "required_objects": [
+        "dressing",
+        "salad",
+        "spoon or tongs"
+      ]
+    },
+    {
+      "stepNumber": 5,
+      "description": "Garnish with dried herbs and a light sprinkle of chili powder, then give a final toss before serving.",
+      "required_objects": [
+        "dried herbs",
+        "chili powder",
+        "salad",
+        "spoon or tongs"
+      ]
+    }
+  ],
+  "ingredients": [
+    {
+      "name": "fusilli pasta",
+      "quantity": "1/2 paquet"
+    },
+    {
+      "name": "tuna",
+      "quantity": "1 can"
+    },
+    {
+      "name": "cherry tomatoes",
+      "quantity": "unspecified"
+    },
+    {
+      "name": "red onion",
+      "quantity": "1"
+    },
+    {
+      "name": "mozzarella balls",
+      "quantity": "unspecified"
+    },
+    {
+      "name": "corn",
+      "quantity": "1 can"
+    },
+    {
+      "name": "Greek yogurt",
+      "quantity": "1"
+    },
+    {
+      "name": "olive oil",
+      "quantity": "1 tbsp"
+    },
+    {
+      "name": "honey",
+      "quantity": "1 tbsp"
+    },
+    {
+      "name": "salt and pepper",
+      "quantity": "a generous pinch"
+    },
+    {
+      "name": "lemon juice",
+      "quantity": "the juice of one lemon"
+    },
+    {
+      "name": "garlic powder",
+      "quantity": "1/2 tsp"
+    },
+    {
+      "name": "oregano",
+      "quantity": "1/2 tsp"
+    },
+    {
+      "name": "paprika",
+      "quantity": "1/2 tsp"
+    },
+    {
+      "name": "chili powder",
+      "quantity": "1/4 tsp"
+    }
+  ]
+}

@@ -146,7 +146,8 @@ export type ServerSessionMessage =
   | { type: "speaking_end" }
   | { type: "step_complete"; step_index: number }
   | { type: "recipe_complete" }
-  | { type: "warning"; text: string } // e.g. "attention, ça brûle"
-  | { type: "error"; text: string };
+  | { type: "warning"; text: string }
+  | { type: "error"; text: string }
+  | { type: "detected_items"; text: string };
 
 export type SessionState = "idle" | "paused" | "active" | "complete";
